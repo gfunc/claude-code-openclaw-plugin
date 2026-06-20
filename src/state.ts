@@ -1,8 +1,7 @@
 import type { ClaudeCodeState } from "./config.js";
 
-// NOTE: The ClaudeCodeState enum includes QUESTION and FATAL, but those are
-// not produced by deriveState(). QUESTION is reserved for future OpenClaw
-// classification, and FATAL is set externally by the timeout service.
+// FATAL is set externally by the timeout service, not derived from hooks.
+// QUESTION is not produced by any current hook; skipped until a real trigger exists.
 
 export type ClaudeCodeHookName =
   | "SessionStart"

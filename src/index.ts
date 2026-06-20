@@ -90,13 +90,11 @@ const plugin: OpenClawPluginDefinition = definePluginEntry({
           const now = Date.now();
           for (const state of store.listStates()) {
             if (now - state.lastSeenAt > config.sessionTimeoutSeconds * 1000) {
-              const updated = store.markFatal(
+              // NOTE: do not heartbeat on FATAL; the session is dead, waking won't help.
+              store.markFatal(
                 state.sessionId,
                 "no hook received within sessionTimeoutSeconds",
               );
-              if (updated && config.notifyStates.includes("FATAL")) {
-                requestHeartbeatNow();
-              }
             }
           }
         }, intervalMs);

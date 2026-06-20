@@ -5,7 +5,6 @@ import { z } from "zod";
 export const ClaudeCodeState = z.enum([
   "WORKING",
   "WAITING",
-  "QUESTION",
   "PERMISSION",
   "ERROR",
   "DONE",
@@ -20,7 +19,6 @@ export const pluginConfigSchema = z.object({
   stateFileDir: z.string().default("~/.cache/claude-code-hooks"),
   notifyStates: z.array(ClaudeCodeState).default([
     "WAITING",
-    "QUESTION",
     "PERMISSION",
     "ERROR",
     "DONE",
