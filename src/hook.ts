@@ -12,6 +12,8 @@ const hookNameSchema = z.enum([
   "PermissionRequest",
   "FileChanged",
   "CwdChanged",
+  "Elicitation",
+  "ElicitationResult",
 ]);
 
 const hookPayloadSchema = z.object({
