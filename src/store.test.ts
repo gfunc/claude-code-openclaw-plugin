@@ -40,7 +40,7 @@ describe("createSessionStore", () => {
       session_id: "s2",
     };
     await store.applyHook(payload);
-    await new Promise((r) => setTimeout(r, 50));
+    await store.dispose();
     const files = await fs.readdir(stateDir);
     expect(files.some((f) => f.includes("s2"))).toBe(true);
   });
@@ -53,6 +53,10 @@ describe("createSessionStore", () => {
     await store.applyHook(payload);
     const updated = store.markFatal("s3", "timeout");
     expect(updated?.state).toBe("FATAL");
+  });
+
+  it("returns undefined for markFatal on non-existent session", () => {
+    expect(store.markFatal("no-such-session", "reason")).toBeUndefined();
   });
 
   it("stores the fatal reason", async () => {
@@ -73,9 +77,12 @@ describe("createSessionStore", () => {
 
     // Create a fresh store that reads the same directory
     const store2 = createSessionStore({ stateFileDir: stateDir, flushDebounceMs: 10 });
-    const loaded = await store2.loadFromDisk();
-    expect(loaded).toBeGreaterThanOrEqual(1);
-    expect(store2.getState("loadable")?.sessionId).toBe("loadable");
-    await store2.dispose();
+    try {
+      const loaded = await store2.loadFromDisk();
+      expect(loaded).toBeGreaterThanOrEqual(1);
+      expect(store2.getState("loadable")?.sessionId).toBe("loadable");
+    } finally {
+      await store2.dispose();
+    }
   });
 });

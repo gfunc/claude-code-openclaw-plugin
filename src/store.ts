@@ -33,7 +33,10 @@ export function createSessionStore(options: SessionStoreOptions) {
   }
 
   function scheduleFlush(): void {
-    if (disposed) return;
+    if (disposed) {
+      void flush();
+      return;
+    }
     if (flushTimer) clearTimeout(flushTimer);
     flushTimer = setTimeout(() => {
       void flush();
