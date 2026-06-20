@@ -18,7 +18,8 @@
     "openclaw": ">=2026.5.17"
   },
   "dependencies": {
-    "typebox": "^1.1.38"
+    "typebox": "^1.1.38",
+    "zod": "^3.25.0"
   },
   "devDependencies": {
     "openclaw": "latest",

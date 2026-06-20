@@ -6,14 +6,16 @@
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
-    "properties": {}
+    "properties": {
+      "routePrefix": { "type": "string", "default": "/claude-code" },
+      "eventTypes": { "type": "array", "items": { "type": "string" }, "default": ["*"] },
+      "stateFileDir": { "type": "string", "default": "~/.cache/claude-code-hooks" },
+      "notifyStates": { "type": "array", "items": { "type": "string" }, "default": ["WAITING", "QUESTION", "PERMISSION", "ERROR", "DONE"] },
+      "sendKeysRateLimitPerMinute": { "type": "number", "default": 10 },
+      "sessionTimeoutSeconds": { "type": "number", "default": 300 }
+    },
+    "required": []
   },
-  "activation": {
-    "onStartup": true
-  },
-  "contracts": {
-    "tools": [
-      "echo"
-    ]
-  }
+  "activation": { "onStartup": true },
+  "contracts": { "tools": ["claude_code_status"] }
 }
