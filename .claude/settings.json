@@ -1,16 +1,14 @@
 {
   "hooks": {
-    "*": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "http",
-            "url": "http://127.0.0.1:18789/claude-code/hook",
-            "timeout": 30
-          }
-        ]
-      }
-    ]
+    "SessionStart": [{"matcher": "*", "hooks": [{"type": "http", "url": "http://127.0.0.1:18789/claude-code/hook", "timeout": 30}]}],
+    "SessionEnd": [{"matcher": "*", "hooks": [{"type": "http", "url": "http://127.0.0.1:18789/claude-code/hook", "timeout": 30}]}],
+    "UserPromptSubmit": [{"matcher": "*", "hooks": [{"type": "http", "url": "http://127.0.0.1:18789/claude-code/hook", "timeout": 30}]}],
+    "Stop": [{"matcher": "*", "hooks": [{"type": "http", "url": "http://127.0.0.1:18789/claude-code/hook", "timeout": 30}]}],
+    "PreToolUse": [{"matcher": "*", "hooks": [{"type": "http", "url": "http://127.0.0.1:18789/claude-code/hook", "timeout": 30}]}],
+    "PostToolUse": [{"matcher": "*", "hooks": [{"type": "http", "url": "http://127.0.0.1:18789/claude-code/hook", "timeout": 30}]}],
+    "PostToolUseFailure": [{"matcher": "*", "hooks": [{"type": "http", "url": "http://127.0.0.1:18789/claude-code/hook", "timeout": 30}]}],
+    "PermissionRequest": [{"matcher": "*", "hooks": [{"type": "http", "url": "http://127.0.0.1:18789/claude-code/hook", "timeout": 30}]}],
+    "FileChanged": [{"matcher": "*", "hooks": [{"type": "http", "url": "http://127.0.0.1:18789/claude-code/hook", "timeout": 30}]}],
+    "CwdChanged": [{"matcher": "*", "hooks": [{"type": "http", "url": "http://127.0.0.1:18789/claude-code/hook", "timeout": 30}]}]
   }
 }
