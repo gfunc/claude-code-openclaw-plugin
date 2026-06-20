@@ -61,6 +61,8 @@ export function createClaudeCodeRoutes({
       sendJson(res, 200, { ok: true });
     } catch (err) {
       // Claude Code must not be blocked by hook failures; always return 200
+      // eslint-disable-next-line no-console
+      console.error("claude-code hook failed:", err);
       sendJson(res, 200, { ok: false, error: String(err) });
     }
   }

@@ -1,6 +1,10 @@
 import type { ClaudeCodeState } from "./config.js";
 import type { SessionState } from "./state.js";
 
+// Builds a context snippet for OpenClaw agents.
+// Currently reserved for future SDK support of the `before_prompt_build` hook;
+// the active OpenClaw SDK build no longer exposes `api.on(...)`, so this helper
+// is not wired in src/index.ts, but it remains tested and spec-aligned.
 export function buildClaudeCodeContext({
   sessions,
   notifyStates,
