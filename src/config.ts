@@ -14,7 +14,7 @@ export const ClaudeCodeState = z.enum([
 
 export type ClaudeCodeState = z.infer<typeof ClaudeCodeState>;
 
-const pluginConfigSchema = z.object({
+export const pluginConfigSchema = z.object({
   routePrefix: z.string().default("/claude-code"),
   eventTypes: z.array(z.string()).default(["*"]),
   stateFileDir: z.string().default("~/.cache/claude-code-hooks"),
