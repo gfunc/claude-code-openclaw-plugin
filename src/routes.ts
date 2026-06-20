@@ -4,10 +4,21 @@ import type { DiscoveredSession } from "./discovery.js";
 import { parseHookPayload } from "./hook.js";
 import type { SessionStore } from "./store.js";
 
+const MAX_BODY_BYTES = 1024 * 1024;
+
 function readBody(req: IncomingMessage): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on("data", (chunk: Buffer) => chunks.push(chunk));
+    let totalBytes = 0;
+    req.on("data", (chunk: Buffer) => {
+      totalBytes += chunk.length;
+      if (totalBytes > MAX_BODY_BYTES) {
+        req.destroy();
+        reject(new Error("body too large"));
+        return;
+      }
+      chunks.push(chunk);
+    });
     req.on("end", () => resolve(Buffer.concat(chunks)));
     req.on("error", reject);
   });
@@ -47,12 +58,19 @@ export function createClaudeCodeRoutes({
       }
       sendJson(res, 200, { ok: true });
     } catch (err) {
+      // Claude Code must not be blocked by hook failures; always return 200
       sendJson(res, 200, { ok: false, error: String(err) });
     }
   }
 
   async function send(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const suffix = req.url?.slice(config.routePrefix.length) ?? "";
+    const url = new URL(req.url ?? "", "http://localhost");
+    const pathname = url.pathname;
+    if (!pathname.startsWith(config.routePrefix)) {
+      sendJson(res, 404, { error: "not found" });
+      return;
+    }
+    const suffix = pathname.slice(config.routePrefix.length);
     const match = suffix.match(/^\/([^/]+)\/send$/);
     const tmuxSession = match?.[1];
     if (!tmuxSession) {
@@ -66,6 +84,10 @@ export function createClaudeCodeRoutes({
     }
     try {
       const body = JSON.parse((await readBody(req)).toString("utf8"));
+      if (typeof body !== "object" || body === null || Array.isArray(body)) {
+        sendJson(res, 400, { error: "invalid body" });
+        return;
+      }
       const text = String(body.text ?? "");
       const submit = Boolean(body.submit);
       await sendKeys?.({ tmuxSession, text, submit });
