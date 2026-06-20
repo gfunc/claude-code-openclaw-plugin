@@ -1,0 +1,19 @@
+{
+  "id": "claude-code-openclaw-plugin",
+  "name": "Claude Code harness",
+  "description": "Add Claude Code harness tools to OpenClaw.",
+  "version": "0.1.0",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  },
+  "activation": {
+    "onStartup": true
+  },
+  "contracts": {
+    "tools": [
+      "echo"
+    ]
+  }
+}
