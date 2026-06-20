@@ -13,7 +13,9 @@ export type ClaudeCodeHookName =
   | "PostToolUseFailure"
   | "PermissionRequest"
   | "FileChanged"
-  | "CwdChanged";
+  | "CwdChanged"
+  | "Elicitation"
+  | "ElicitationResult";
 
 export type ClaudeCodeHookPayload = {
   hook_event_name: ClaudeCodeHookName;
@@ -64,6 +66,11 @@ export function deriveState(payload: ClaudeCodeHookPayload): {
       return { state: "ERROR", tool: payload.tool_name };
     case "PermissionRequest":
       return { state: "PERMISSION" };
+    case "Elicitation":
+      return { state: "QUESTION" };
+    case "ElicitationResult":
+      // user answered a question — back to working
+      return { state: "WORKING" };
     case "SessionEnd":
       return { state: "DONE" };
     case "Stop":
