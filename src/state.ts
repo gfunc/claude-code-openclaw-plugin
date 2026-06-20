@@ -40,6 +40,7 @@ export type SessionState = {
   lastSeenAt: number;
   budgetMinutes?: number;
   budgetDeadline?: number;
+  fatalReason?: string;
   history: Array<{
     ts: number;
     state: ClaudeCodeState;

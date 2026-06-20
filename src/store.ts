@@ -23,7 +23,6 @@ export function createSessionStore(options: SessionStoreOptions) {
   }
 
   async function flush(): Promise<void> {
-    if (disposed) return;
     await fs.mkdir(stateDir, { recursive: true });
     await Promise.all(
       Array.from(sessions.values()).map((state) => {
@@ -34,6 +33,7 @@ export function createSessionStore(options: SessionStoreOptions) {
   }
 
   function scheduleFlush(): void {
+    if (disposed) return;
     if (flushTimer) clearTimeout(flushTimer);
     flushTimer = setTimeout(() => {
       void flush();
@@ -73,6 +73,7 @@ export function createSessionStore(options: SessionStoreOptions) {
     const updated: SessionState = {
       ...state,
       state: "FATAL",
+      fatalReason: reason,
       stateSince: now,
       lastSeenAt: now,
       history: [...state.history, { ts: now, state: "FATAL", event: state.lastHookEvent }],
@@ -80,6 +81,29 @@ export function createSessionStore(options: SessionStoreOptions) {
     sessions.set(sessionId, updated);
     scheduleFlush();
     return updated;
+  }
+
+  async function loadFromDisk(): Promise<number> {
+    let count = 0;
+    try {
+      const files = await fs.readdir(stateDir);
+      const jsonFiles = files.filter((f) => f.endsWith(".json"));
+      for (const file of jsonFiles) {
+        try {
+          const content = await fs.readFile(path.join(stateDir, file), "utf8");
+          const parsed = JSON.parse(content) as unknown;
+          if (parsed && typeof parsed === "object" && "sessionId" in parsed && typeof (parsed as Record<string, unknown>).sessionId === "string") {
+            sessions.set((parsed as SessionState).sessionId, parsed as SessionState);
+            count++;
+          }
+        } catch {
+          // skip files that fail to parse or lack sessionId
+        }
+      }
+    } catch {
+      // stateDir does not exist or is not readable
+    }
+    return count;
   }
 
   function getState(sessionId: string): SessionState | undefined {
@@ -101,6 +125,7 @@ export function createSessionStore(options: SessionStoreOptions) {
     markFatal,
     getState,
     listStates,
+    loadFromDisk,
     dispose,
   };
 }

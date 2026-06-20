@@ -54,4 +54,28 @@ describe("createSessionStore", () => {
     const updated = store.markFatal("s3", "timeout");
     expect(updated?.state).toBe("FATAL");
   });
+
+  it("stores the fatal reason", async () => {
+    // apply a hook first so session exists
+    await store.applyHook({ hook_event_name: "Stop", session_id: "fatal-reason" });
+    store.markFatal("fatal-reason", "timeout");
+    const state = store.getState("fatal-reason");
+    expect(state?.fatalReason).toBe("timeout");
+  });
+
+  it("loads sessions from disk", async () => {
+    const payload: ClaudeCodeHookPayload = {
+      hook_event_name: "Stop",
+      session_id: "loadable",
+    };
+    await store.applyHook(payload);
+    await store.dispose();
+
+    // Create a fresh store that reads the same directory
+    const store2 = createSessionStore({ stateFileDir: stateDir, flushDebounceMs: 10 });
+    const loaded = await store2.loadFromDisk();
+    expect(loaded).toBeGreaterThanOrEqual(1);
+    expect(store2.getState("loadable")?.sessionId).toBe("loadable");
+    await store2.dispose();
+  });
 });
