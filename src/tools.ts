@@ -5,6 +5,7 @@ import type { SessionStore } from "./store.js";
 
 export function createClaudeCodeStatusTool(store: SessionStore): AnyAgentTool {
   return {
+    label: "Claude Code Status",
     name: "claude_code_status",
     description:
       "List active Claude Code sessions tracked by the hook plugin. Returns session id, tmux session, state, and log file path.",
