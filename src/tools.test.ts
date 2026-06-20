@@ -7,8 +7,18 @@ describe("claude_code_status tool", () => {
     const store = createSessionStore({ stateFileDir: "/tmp/tools-test" });
     await store.applyHook({ hook_event_name: "Stop", session_id: "s1" });
     const tool = createClaudeCodeStatusTool(store);
-    const result = await tool.execute({});
-    expect(result.sessions).toHaveLength(1);
-    expect(result.sessions[0].sessionId).toBe("s1");
+    const result = await tool.execute("tc-1", {});
+    expect(result.details.sessions).toHaveLength(1);
+    expect(result.details.sessions[0].sessionId).toBe("s1");
+  });
+
+  it("filters by state", async () => {
+    const store = createSessionStore({ stateFileDir: "/tmp/tools-test-filter" });
+    await store.applyHook({ hook_event_name: "Stop", session_id: "s1" });
+    await store.applyHook({ hook_event_name: "SessionStart", session_id: "s2" });
+    const tool = createClaudeCodeStatusTool(store);
+    const result = await tool.execute("tc-1", { state: "WAITING" });
+    expect(result.details.sessions).toHaveLength(1);
+    expect(result.details.sessions[0].sessionId).toBe("s1");
   });
 });
