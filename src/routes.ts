@@ -48,6 +48,8 @@ export function createClaudeCodeRoutes({
   sendKeys?: SendKeysFn;
   discoverSession?: (sessionId: string) => Promise<DiscoveredSession | undefined>;
 }) {
+  const lastSendAt = new Map<string, number>();
+
   async function hook(req: IncomingMessage, res: ServerResponse): Promise<void> {
     try {
       const body = JSON.parse((await readBody(req)).toString("utf8"));
@@ -82,6 +84,13 @@ export function createClaudeCodeRoutes({
       sendJson(res, 404, { error: "session not tracked" });
       return;
     }
+    const now = Date.now();
+    const minIntervalMs = 60_000 / config.sendKeysRateLimitPerMinute;
+    const lastSent = lastSendAt.get(tmuxSession) ?? 0;
+    if (now - lastSent < minIntervalMs) {
+      sendJson(res, 429, { error: "rate limited" });
+      return;
+    }
     try {
       const body = JSON.parse((await readBody(req)).toString("utf8"));
       if (typeof body !== "object" || body === null || Array.isArray(body)) {
@@ -91,6 +100,7 @@ export function createClaudeCodeRoutes({
       const text = String(body.text ?? "");
       const submit = Boolean(body.submit);
       await sendKeys?.({ tmuxSession, text, submit });
+      lastSendAt.set(tmuxSession, Date.now());
       sendJson(res, 200, { sent: true, sessionId: tracked.sessionId });
     } catch (err) {
       sendJson(res, 500, { error: String(err) });

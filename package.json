@@ -5,8 +5,8 @@
   "private": true,
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "plugin:build": "npm run build && openclaw plugins build --entry ./dist/index.js",
-    "plugin:validate": "npm run build && openclaw plugins validate --entry ./dist/index.js",
+    "plugin:build": "npm run build",
+    "plugin:validate": "npm run build && npm test",
     "test": "vitest run"
   },
   "files": [
@@ -22,6 +22,7 @@
     "zod": "^3.25.0"
   },
   "devDependencies": {
+    "@types/node": "^22.0.0",
     "openclaw": "latest",
     "typescript": "^5.9.0",
     "vitest": "^3.2.0"

@@ -125,11 +125,13 @@ describe("createClaudeCodeRoutes", () => {
       stateSince: Date.now(),
       lastSeenAt: Date.now(),
       lastHookEvent: "Stop",
+      lastHookPayload: { hook_event_name: "Stop", session_id: "sess-1" },
+      logFile: "/tmp/routes-test/tmux-1.log",
       history: [],
     };
     await store.applyHook(
       { hook_event_name: "Stop", session_id: "sess-1" },
-      async () => ({ tmuxSession: "tmux-1", sessionId: "sess-1" }),
+      async () => ({ tmuxSession: "tmux-1", sessionId: "sess-1", logFile: "/tmp/routes-test/tmux-1.log" }),
     );
 
     const req = mockReq({
@@ -153,7 +155,7 @@ describe("createClaudeCodeRoutes", () => {
     // Seed the store with a session that has a tmuxSession
     await store.applyHook(
       { hook_event_name: "Stop", session_id: "sess-2" },
-      async () => ({ tmuxSession: "tmux-2", sessionId: "sess-2" }),
+      async () => ({ tmuxSession: "tmux-2", sessionId: "sess-2", logFile: "/tmp/routes-test/tmux-2.log" }),
     );
 
     const req = mockReq({

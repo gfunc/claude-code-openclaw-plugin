@@ -1,18 +1,45 @@
-import { buildPluginConfigSchema, definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
-import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
-import { buildClaudeCodeContext } from "./context.js";
-import { pluginConfigSchema, resolvePluginConfig } from "./config.js";
+import {
+  buildJsonPluginConfigSchema,
+  definePluginEntry,
+} from "openclaw/plugin-sdk/plugin-entry";
+import type {
+  OpenClawPluginApi,
+  OpenClawPluginDefinition,
+} from "openclaw/plugin-sdk/plugin-entry";
+import { resolvePluginConfig } from "./config.js";
 import { discoverSession } from "./discovery.js";
 import { createClaudeCodeRoutes } from "./routes.js";
 import { createSessionStore } from "./store.js";
 import { sendKeysToTmuxSession, tmuxSessionExists } from "./tmux.js";
 import { createClaudeCodeStatusTool } from "./tools.js";
 
-export default definePluginEntry({
+const pluginConfigJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    routePrefix: { type: "string", default: "/claude-code" },
+    eventTypes: {
+      type: "array",
+      items: { type: "string" },
+      default: ["*"],
+    },
+    stateFileDir: { type: "string", default: "~/.cache/claude-code-hooks" },
+    notifyStates: {
+      type: "array",
+      items: { type: "string" },
+      default: ["WAITING", "QUESTION", "PERMISSION", "ERROR", "DONE"],
+    },
+    sendKeysRateLimitPerMinute: { type: "number", default: 10 },
+    sessionTimeoutSeconds: { type: "number", default: 300 },
+  },
+  required: [],
+} as const;
+
+const plugin: OpenClawPluginDefinition = definePluginEntry({
   id: "claude-code-openclaw-plugin",
   name: "Claude Code harness",
   description: "Add Claude Code harness tools to OpenClaw.",
-  configSchema: buildPluginConfigSchema(pluginConfigSchema),
+  configSchema: buildJsonPluginConfigSchema(pluginConfigJsonSchema),
   register(api: OpenClawPluginApi) {
     const rawConfig = api.pluginConfig ?? {};
     const config = resolvePluginConfig(rawConfig);
@@ -51,33 +78,29 @@ export default definePluginEntry({
       handler: routes.send,
     });
 
-    api.registerHook("before_prompt_build", async () => {
-      const context = buildClaudeCodeContext({
-        sessions: store.listStates(),
-        notifyStates: config.notifyStates,
-      });
-      return context ? { prependContext: context } : undefined;
-    });
-
     api.registerTool(createClaudeCodeStatusTool(store));
 
-    let timeoutTimer: ReturnType<typeof setInterval> | undefined;
+    let timeoutTimer: NodeJS.Timeout | undefined;
     api.registerService({
       id: "claude-code-session-timeout",
-      start: () => {
+      start: async () => {
+        await store.loadFromDisk();
         const intervalMs = Math.min(config.sessionTimeoutSeconds * 1000, 60_000);
         timeoutTimer = setInterval(() => {
           const now = Date.now();
           for (const state of store.listStates()) {
             if (now - state.lastSeenAt > config.sessionTimeoutSeconds * 1000) {
-              const updated = store.markFatal(state.sessionId, "no hook received within sessionTimeoutSeconds");
+              const updated = store.markFatal(
+                state.sessionId,
+                "no hook received within sessionTimeoutSeconds",
+              );
               if (updated && config.notifyStates.includes("FATAL")) {
                 requestHeartbeatNow();
               }
             }
           }
         }, intervalMs);
-        timeoutTimer.unref?.();
+        timeoutTimer.unref();
       },
       stop: () => {
         if (timeoutTimer) clearInterval(timeoutTimer);
@@ -86,3 +109,5 @@ export default definePluginEntry({
     });
   },
 });
+
+export default plugin;
