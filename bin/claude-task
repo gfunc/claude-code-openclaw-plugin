@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+# claude-task - Spawn an INTERACTIVE Claude Code session in tmux.
+#
+# Rules enforced (per USER.md "写代码的工作流 → 启动 Claude Code 的铁律"):
+#   1. tmux + INTERACTIVE (no `claude -p`)
+#   2. default budget 30 min (watchdog auto-kills)
+#   3. explicit session id (saved to state file → resumable via --resume)
+#   4. default bypassPermissions
+#   5. spawn → return immediately (no synchronous waits; the channel must not block)
+#
+# Usage: claude-task <session> <task> [budget-min=30] [workdir=$PWD]
+#
+# Examples:
+#   claude-task cc-bugfix "fix bug X in repo Y" 30 ~/Projects/repo
+#   claude-task cc-test "summarize this file"
+#
+# Companion scripts:
+#   claude-task-status <session>   - status / log tail / budget / session id
+#   claude-task-stop <session>     - kill session early
+#   claude-task-restore <sid> <session> [workdir]  - new tmux resuming <sid>
+#   tmux attach -t <session>       - interactive
+#
+# Implementation notes:
+#   - Logging uses `tmux pipe-pane`, NOT `| tee`, because piping stdout makes
+#     Claude Code auto-detect "not a TTY" and switch to --print mode (which
+#     then errors with "Input must be provided either through stdin or as a
+#     prompt argument when using --print"). pipe-pane preserves the TTY.
+#   - First launch in a new directory shows a workspace trust dialog
+#     ("Is this a project you created or one you trust?"). We detect it via
+#     tmux capture-pane and auto-accept (option "1") before sending the task.
+
+set -euo pipefail
+
+if [ $# -lt 2 ]; then
+    cat <<EOF
+Usage: claude-task <session> <task> [budget-min=30] [workdir=\$PWD]
+
+Spawns an INTERACTIVE Claude Code session in tmux:
+  - default budget 30min (watchdog auto-kills)
+  - explicit session id (saved to state file, resumable)
+  - bypassPermissions by default
+  - spawns detached — does NOT block the calling channel
+
+Watch Claude Code status via:
+  - claude-code-watcher (writes events.jsonl)
+  - openclaw heartbeat (DM only on WAITING / QUESTION / PERMISSION)
+
+Manage via:
+  claude-task-status <session>    # status + session id
+  claude-task-stop <session>      # kill early
+  claude-task-restore <sid> [session] [workdir]   # resume in new tmux
+  tmux attach -t <session>         # interactive
+EOF
+    exit 1
+fi
+
+SESSION="$1"
+TASK="$2"
+BUDGET="${3:-30}"
+DIR="${4:-$PWD}"
+
+TASK_DIR="$HOME/.cache/claude-tasks"
+LOG="$TASK_DIR/$SESSION.log"
+STATE="$TASK_DIR/$SESSION.state"
+mkdir -p "$TASK_DIR"
+
+# Clean up old session if exists
+tmux kill-session -t "$SESSION" 2>/dev/null || true
+rm -f "$LOG" "$STATE" "${STATE}.watchdog"
+
+# Generate UUID v4 for explicit session id
+SID=$(cat /proc/sys/kernel/random/uuid)
+
+# Spawn tmux session with INTERACTIVE claude.
+# CRITICAL: do NOT pipe stdout (breaks TTY → Claude falls back to --print).
+# Logging is handled separately via tmux pipe-pane below.
+tmux new-session -d -s "$SESSION" -c "$DIR" \
+    "claude --session-id '$SID' --permission-mode bypassPermissions"
+
+# Capture all pane output to log via tmux pipe-pane (-o = only future output)
+tmux pipe-pane -t "$SESSION" -o "cat >> '$LOG'"
+
+# Wait for Claude REPL to initialize
+sleep 5
+
+# Detect & auto-accept the workspace trust / safety-check dialog (first launch in a new dir).
+# As of Claude Code 2.x we have seen two variants:
+#   A) three-option dialog: 1. Continue / 2. Fix with Claude / 3. Exit and fix manually
+#   B) two-option safety check: 1. Yes, I trust this folder / 2. No, exit
+# In both cases the default option is "1" and Enter confirms.
+# Match all distinguishing lines of a given variant to avoid false positives.
+# Idempotent: if trust was already accepted in this dir, the prompt won't appear
+# and we just skip this block.
+CAPTURE=$(tmux capture-pane -t "$SESSION" -p 2>/dev/null || true)
+TRUST_MATCHED=""
+if echo "$CAPTURE" | grep -qiE "1\. Continue" \
+    && echo "$CAPTURE" | grep -qiE "2\. Fix with Claude" \
+    && echo "$CAPTURE" | grep -qiE "3\. Exit and fix manually" \
+    && echo "$CAPTURE" | grep -qiE "Enter to confirm"; then
+    TRUST_MATCHED="2.x-three-option"
+elif echo "$CAPTURE" | grep -qiE "Yes, I trust this folder" \
+    && echo "$CAPTURE" | grep -qiE "No, exit"; then
+    TRUST_MATCHED="2.x-two-option"
+fi
+if [ -n "$TRUST_MATCHED" ]; then
+    tmux send-keys -t "$SESSION" "1"
+    sleep 1
+    tmux send-keys -t "$SESSION" Enter
+    sleep 2
+fi
+
+# Send initial task via paste-buffer (handles multi-line cleanly)
+printf '%s' "$TASK" | tmux load-buffer -
+tmux paste-buffer -t "$SESSION"
+tmux send-keys -t "$SESSION" Enter
+
+# Persist state (session id is the key new field — enables later --resume)
+echo "RUNNING $(date +%s) budget=${BUDGET}min workdir=$DIR session_id=$SID" > "$STATE"
+
+# Watchdog: auto-kill at budget
+(
+    sleep $((BUDGET * 60))
+    if tmux has-session -t "$SESSION" 2>/dev/null; then
+        tmux kill-session -t "$SESSION" 2>/dev/null
+        echo "BUDGET_EXCEEDED $(date +%s) session_id=$SID" >> "$STATE"
+    fi
+) &
+WATCHDOG_PID=$!
+disown "$WATCHDOG_PID" 2>/dev/null || true
+echo "$WATCHDOG_PID" > "${STATE}.watchdog"
+
+# Return immediately — caller (openclaw channel) must NOT block.
+cat <<EOF
+✓ spawned: $SESSION
+  budget:     ${BUDGET}min
+  workdir:    $DIR
+  session id: $SID
+  log:        $LOG
+  state:      $STATE
+  attach:     tmux attach -t $SESSION
+  resume:     claude-task-restore $SID
+  status:     claude-task-status $SESSION
+  stop:       claude-task-stop $SESSION
+EOF
