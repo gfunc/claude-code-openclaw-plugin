@@ -13,6 +13,11 @@ import { createSessionStore } from "./store.js";
 import { sendKeysToTmuxSession, tmuxSessionExists } from "./tmux.js";
 import { createClaudeCodeStatusTool } from "./tools.js";
 
+import { createClaudeCodeSpawnTool } from "./spawn.js";
+import { createClaudeCodeStopTool } from "./stop.js";
+import { createClaudeCodeRestoreTool } from "./restore.js";
+import { createClaudeCodeSetupHooksTool } from "./setup-hooks.js";
+
 const pluginConfigJsonSchema = {
   type: "object",
   additionalProperties: false,
@@ -72,13 +77,31 @@ const plugin: OpenClawPluginDefinition = definePluginEntry({
     });
 
     api.registerHttpRoute({
+      path: `${config.routePrefix}/spawn`,
+      auth: "plugin",
+      match: "exact",
+      handler: routes.spawn,
+    });
+
+    api.registerHttpRoute({
+      path: `${config.routePrefix}/setup-hooks`,
+      auth: "plugin",
+      match: "exact",
+      handler: routes.setupHooks,
+    });
+
+    api.registerHttpRoute({
       path: `${config.routePrefix}/`,
       auth: "plugin",
       match: "prefix",
-      handler: routes.send,
+      handler: routes.dispatch, // handles <tmux>/send, <session>/stop, <session>/restore
     });
 
     api.registerTool(createClaudeCodeStatusTool(store));
+    api.registerTool(createClaudeCodeSpawnTool());
+    api.registerTool(createClaudeCodeStopTool());
+    api.registerTool(createClaudeCodeRestoreTool());
+    api.registerTool(createClaudeCodeSetupHooksTool());
 
     let timeoutTimer: NodeJS.Timeout | undefined;
     api.registerService({

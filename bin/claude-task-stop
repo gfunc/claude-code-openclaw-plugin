@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# claude-task-stop - Kill a claude-task session early.
+# HTTP-first wrapper: tries the OpenClaw plugin, falls back to local bash.
+
+set -euo pipefail
+
+GATEWAY="http://127.0.0.1:18789"
+
+fallback() {
+    # --- LOCAL BASH IMPLEMENTATION START ---
+    if [ $# -lt 1 ]; then
+        echo "Usage: claude-task-stop <session>"
+        exit 1
+    fi
+
+    SESSION="$1"
+    STATE="$HOME/.cache/claude-tasks/$SESSION.state"
+    WATCHDOG="$STATE.watchdog"
+
+    if [ -f "$WATCHDOG" ]; then
+        WPID=$(cat "$WATCHDOG" 2>/dev/null || true)
+        if [ -n "$WPID" ]; then
+            kill "$WPID" 2>/dev/null || true
+        fi
+        rm -f "$WATCHDOG"
+    fi
+
+    if tmux has-session -t "$SESSION" 2>/dev/null; then
+        tmux kill-session -t "$SESSION"
+        echo "STOPPED $(date +%s)" >> "$STATE" 2>/dev/null || true
+        echo "✓ killed session: $SESSION"
+    else
+        echo "session not alive: $SESSION"
+    fi
+    # --- LOCAL BASH IMPLEMENTATION END ---
+}
+
+if [ $# -lt 1 ]; then
+    fallback "$@"
+    exit $?
+fi
+
+SESSION="$1"
+
+PAYLOAD=$(python3 -c 'import json,sys; print(json.dumps({"sessionName":sys.argv[1]}))' "$SESSION")
+
+if curl -fsS -X POST "${GATEWAY}/claude-code/${SESSION}/stop" \
+    -H "content-type: application/json" \
+    -d "$PAYLOAD"; then
+    exit 0
+fi
+
+fallback "$@"

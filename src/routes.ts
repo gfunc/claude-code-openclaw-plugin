@@ -3,6 +3,10 @@ import type { PluginConfig } from "./config.js";
 import type { DiscoveredSession } from "./discovery.js";
 import { parseHookPayload } from "./hook.js";
 import type { SessionStore } from "./store.js";
+import { handleSpawnRoute } from "./spawn.js";
+import { stopSession } from "./stop.js";
+import { restoreSession } from "./restore.js";
+import { handleSetupHooksRoute } from "./setup-hooks.js";
 
 const MAX_BODY_BYTES = 1024 * 1024;
 
@@ -67,7 +71,11 @@ export function createClaudeCodeRoutes({
     }
   }
 
-  async function send(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  async function send(
+    req: IncomingMessage,
+    res: ServerResponse,
+    explicitTmuxSession?: string,
+  ): Promise<void> {
     const url = new URL(req.url ?? "", "http://localhost");
     const pathname = url.pathname;
     if (!pathname.startsWith(config.routePrefix)) {
@@ -75,8 +83,7 @@ export function createClaudeCodeRoutes({
       return;
     }
     const suffix = pathname.slice(config.routePrefix.length);
-    const match = suffix.match(/^\/([^/]+)\/send$/);
-    const tmuxSession = match?.[1];
+    const tmuxSession = explicitTmuxSession ?? suffix.match(/^\/([^/]+)\/send$/)?.[1];
     if (!tmuxSession) {
       sendJson(res, 404, { error: "not found" });
       return;
@@ -109,5 +116,86 @@ export function createClaudeCodeRoutes({
     }
   }
 
-  return { hook, send };
+  async function spawn(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    try {
+      const body = JSON.parse((await readBody(req)).toString("utf8"));
+      const { status, body: resp } = await handleSpawnRoute(body);
+      sendJson(res, status, resp);
+    } catch (err) {
+      sendJson(res, 500, { error: String(err) });
+    }
+  }
+
+  async function setupHooks(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    try {
+      const body = JSON.parse((await readBody(req)).toString("utf8"));
+      const { status, body: resp } = await handleSetupHooksRoute(body);
+      sendJson(res, status, resp);
+    } catch (err) {
+      sendJson(res, 500, { error: String(err) });
+    }
+  }
+
+  async function dispatch(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const url = new URL(req.url ?? "", "http://localhost");
+    const pathname = url.pathname;
+    if (!pathname.startsWith(config.routePrefix)) {
+      sendJson(res, 404, { error: "not found" });
+      return;
+    }
+    const suffix = pathname.slice(config.routePrefix.length);
+
+    const sendMatch = suffix.match(/^\/([^/]+)\/send$/);
+    if (sendMatch) {
+      await send(req, res, sendMatch[1]);
+      return;
+    }
+
+    const dynamicMatch = suffix.match(/^\/([^/]+)\/(stop|restore)$/);
+    const exactActionMatch = suffix.match(/^\/(stop|restore)$/);
+    const actionFromPath = (dynamicMatch?.[2] ?? exactActionMatch?.[1]) as "stop" | "restore" | undefined;
+    const nameFromPath = dynamicMatch?.[1];
+
+    try {
+      const body = JSON.parse((await readBody(req)).toString("utf8"));
+      const payload = typeof body === "object" && body !== null && !Array.isArray(body) ? body : {};
+
+      if (actionFromPath === "stop") {
+        const sessionName = nameFromPath ?? (payload as Record<string, unknown>).sessionName;
+        if (typeof sessionName !== "string") {
+          sendJson(res, 400, { error: "sessionName is required" });
+          return;
+        }
+        const result = await stopSession({ sessionName });
+        sendJson(res, result.success ? 200 : 404, result);
+        return;
+      }
+
+      if (actionFromPath === "restore") {
+        const sessionId = nameFromPath ?? (payload as Record<string, unknown>).sessionId;
+        if (typeof sessionId !== "string") {
+          sendJson(res, 400, { error: "sessionId is required" });
+          return;
+        }
+        const tmuxSession = typeof (payload as Record<string, unknown>).tmuxSession === "string"
+          ? (payload as Record<string, unknown>).tmuxSession as string
+          : undefined;
+        const workdir = typeof (payload as Record<string, unknown>).workdir === "string"
+          ? (payload as Record<string, unknown>).workdir as string
+          : undefined;
+        const budgetMinutes = typeof (payload as Record<string, unknown>).budgetMinutes === "number"
+          ? (payload as Record<string, unknown>).budgetMinutes as number
+          : undefined;
+        const result = await restoreSession({ sessionId, tmuxSession, workdir, budgetMinutes });
+        sendJson(res, result.success ? 200 : 500, result);
+        return;
+      }
+
+      sendJson(res, 404, { error: "not found" });
+    } catch (err) {
+      sendJson(res, 500, { error: String(err) });
+    }
+  }
+
+  return { hook, send, spawn, setupHooks, dispatch };
 }

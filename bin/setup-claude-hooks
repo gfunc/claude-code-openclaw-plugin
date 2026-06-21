@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+# setup-claude-hooks — Enable Claude Code hook config for a target repo.
+# HTTP-first wrapper: tries the OpenClaw plugin, falls back to local bash.
+
+set -euo pipefail
+
+GATEWAY="http://127.0.0.1:18789"
+
+fallback() {
+    # --- LOCAL BASH IMPLEMENTATION START ---
+    TEMPLATE="$HOME/Projects/claude-code-openclaw-plugin/.claude/settings.json"
+    HOOK_URL="http://127.0.0.1:18789/claude-code/hook"
+
+    if [ ! -f "$TEMPLATE" ]; then
+        echo "✗ canonical template not found: $TEMPLATE"
+        exit 1
+    fi
+
+    if [ $# -lt 1 ]; then
+        cat <<EOF
+Usage: setup-claude-hooks <repo-path> [--force] [--shared]
+
+Writes Claude Code hook config to <repo>/.claude/settings.local.json (default;
+env-specific, auto-gitignored) so the OpenClaw claude-code plugin can track
+Claude Code sessions in that repo.
+
+Options:
+  --force   Overwrite existing settings file if present.
+  --shared  Write to .claude/settings.json (committed) instead of .local.json.
+EOF
+        exit 1
+    fi
+
+    REPO_RAW="$1"
+    shift
+
+    FORCE=0
+    SHARED=0
+    for arg in "$@"; do
+        case "$arg" in
+            --force) FORCE=1 ;;
+            --shared) SHARED=1 ;;
+            *) echo "✗ unknown flag: $arg"; exit 1 ;;
+        esac
+    done
+
+    if [ ! -d "$REPO_RAW" ]; then
+        echo "✗ not a directory: $REPO_RAW"
+        exit 1
+    fi
+    REPO=$(cd "$REPO_RAW" && pwd)
+
+    if [ "$SHARED" = "1" ]; then
+        TARGET="$REPO/.claude/settings.json"
+        TARGET_KIND="shared (.claude/settings.json — committed)"
+    else
+        TARGET="$REPO/.claude/settings.local.json"
+        TARGET_KIND="local (.claude/settings.local.json — auto-gitignored)"
+    fi
+
+    for f in "$REPO/.claude/settings.json" "$REPO/.claude/settings.local.json"; do
+        if [ -f "$f" ] && grep -qF "$HOOK_URL" "$f"; then
+            echo "✓ hooks already configured in $f"
+            exit 0
+        fi
+    done
+
+    if [ -f "$TARGET" ] && [ "$FORCE" != "1" ]; then
+        echo "✗ $TARGET exists but does not contain $HOOK_URL"
+        echo "  refusing to overwrite without --force"
+        exit 1
+    fi
+
+    mkdir -p "$(dirname "$TARGET")"
+    cp "$TEMPLATE" "$TARGET"
+
+    echo "✓ hooks configured: $TARGET"
+    echo "  kind: $TARGET_KIND"
+    # --- LOCAL BASH IMPLEMENTATION END ---
+}
+
+if [ $# -lt 1 ]; then
+    fallback "$@"
+    exit $?
+fi
+
+REPO_RAW="$1"
+shift
+
+FORCE=0
+SHARED=0
+for arg in "$@"; do
+    case "$arg" in
+        --force) FORCE=1 ;;
+        --shared) SHARED=1 ;;
+        *) ;;
+    esac
+done
+
+PAYLOAD=$(python3 -c 'import json,sys; print(json.dumps({"repoPath":sys.argv[1],"shared":bool(int(sys.argv[2])),"force":bool(int(sys.argv[3]))}))' "$REPO_RAW" "$SHARED" "$FORCE")
+
+if curl -fsS -X POST "${GATEWAY}/claude-code/setup-hooks" \
+    -H "content-type: application/json" \
+    -d "$PAYLOAD"; then
+    exit 0
+fi
+
+fallback "$REPO_RAW" "$@"
