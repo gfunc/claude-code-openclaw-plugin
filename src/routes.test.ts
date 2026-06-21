@@ -5,6 +5,7 @@ import { createSessionStore } from "./store.js";
 import { createClaudeCodeRoutes } from "./routes.js";
 import type { PluginConfig } from "./config.js";
 import type { SessionState } from "./state.js";
+import type { BehaviorDispatcher } from "./dispatcher.js";
 
 function mockReq({
   method,
@@ -43,7 +44,7 @@ function mockRes(): ServerResponse {
 describe("createClaudeCodeRoutes", () => {
   let store: ReturnType<typeof createSessionStore>;
   let routes: ReturnType<typeof createClaudeCodeRoutes>;
-  let requestHeartbeatNow: ReturnType<typeof vi.fn>;
+  let dispatcher: BehaviorDispatcher;
   let sendKeys: ReturnType<typeof vi.fn>;
   const config: PluginConfig = {
     routePrefix: "/claude-code",
@@ -56,12 +57,16 @@ describe("createClaudeCodeRoutes", () => {
 
   beforeEach(() => {
     store = createSessionStore({ stateFileDir: "/tmp/routes-test" });
-    requestHeartbeatNow = vi.fn();
+    dispatcher = {
+      onStateChanged: vi.fn(),
+      flushAnnouncements: vi.fn(() => []),
+      getPendingAnnounceSessionIds: vi.fn(() => []),
+    } as unknown as BehaviorDispatcher;
     sendKeys = vi.fn();
     routes = createClaudeCodeRoutes({
       store,
       config,
-      requestHeartbeatNow,
+      dispatcher,
       sendKeys,
     });
   });
@@ -83,7 +88,7 @@ describe("createClaudeCodeRoutes", () => {
     expect(body).toEqual({ ok: true });
   });
 
-  it("triggers requestHeartbeatNow for WAITING state", async () => {
+  it("delegates state change to dispatcher", async () => {
     const req = mockReq({
       method: "POST",
       path: "/claude-code/hook",
@@ -91,18 +96,10 @@ describe("createClaudeCodeRoutes", () => {
     });
     const res = mockRes();
     await routes.hook(req, res);
-    expect(requestHeartbeatNow).toHaveBeenCalled();
-  });
-
-  it("does NOT trigger requestHeartbeatNow for WORKING when notifyStates is WAITING only", async () => {
-    const req = mockReq({
-      method: "POST",
-      path: "/claude-code/hook",
-      body: { hook_event_name: "PreToolUse", session_id: "s3" },
-    });
-    const res = mockRes();
-    await routes.hook(req, res);
-    expect(requestHeartbeatNow).not.toHaveBeenCalled();
+    expect(dispatcher.onStateChanged).toHaveBeenCalled();
+    const callArg = (dispatcher.onStateChanged as ReturnType<typeof vi.fn>).mock
+      .calls[0]?.[0] as SessionState;
+    expect(callArg.state).toBe("WAITING");
   });
 
   it("returns 404 for unknown tmux session on send", async () => {
@@ -117,21 +114,13 @@ describe("createClaudeCodeRoutes", () => {
   });
 
   it("successfully sends keys and returns sent: true with sessionId", async () => {
-    // Seed the store with a session that has a tmuxSession
-    const state: SessionState = {
-      sessionId: "sess-1",
-      tmuxSession: "tmux-1",
-      state: "WAITING",
-      stateSince: Date.now(),
-      lastSeenAt: Date.now(),
-      lastHookEvent: "Stop",
-      lastHookPayload: { hook_event_name: "Stop", session_id: "sess-1" },
-      logFile: "/tmp/routes-test/tmux-1.log",
-      history: [],
-    };
     await store.applyHook(
       { hook_event_name: "Stop", session_id: "sess-1" },
-      async () => ({ tmuxSession: "tmux-1", sessionId: "sess-1", logFile: "/tmp/routes-test/tmux-1.log" }),
+      async () => ({
+        tmuxSession: "tmux-1",
+        sessionId: "sess-1",
+        logFile: "/tmp/routes-test/tmux-1.log",
+      }),
     );
 
     const req = mockReq({
@@ -152,10 +141,13 @@ describe("createClaudeCodeRoutes", () => {
   });
 
   it("returns 400 for non-object body in send", async () => {
-    // Seed the store with a session that has a tmuxSession
     await store.applyHook(
       { hook_event_name: "Stop", session_id: "sess-2" },
-      async () => ({ tmuxSession: "tmux-2", sessionId: "sess-2", logFile: "/tmp/routes-test/tmux-2.log" }),
+      async () => ({
+        tmuxSession: "tmux-2",
+        sessionId: "sess-2",
+        logFile: "/tmp/routes-test/tmux-2.log",
+      }),
     );
 
     const req = mockReq({

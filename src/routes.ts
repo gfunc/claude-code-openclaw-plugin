@@ -7,6 +7,7 @@ import { handleSpawnRoute } from "./spawn.js";
 import { stopSession } from "./stop.js";
 import { restoreSession } from "./restore.js";
 import { handleSetupHooksRoute } from "./setup-hooks.js";
+import type { BehaviorDispatcher } from "./dispatcher.js";
 
 const MAX_BODY_BYTES = 1024 * 1024;
 
@@ -42,13 +43,13 @@ export type SendKeysFn = (params: {
 export function createClaudeCodeRoutes({
   store,
   config,
-  requestHeartbeatNow,
+  dispatcher,
   sendKeys,
   discoverSession,
 }: {
   store: SessionStore;
   config: PluginConfig;
-  requestHeartbeatNow?: () => void;
+  dispatcher?: BehaviorDispatcher;
   sendKeys?: SendKeysFn;
   discoverSession?: (sessionId: string) => Promise<DiscoveredSession | undefined>;
 }) {
@@ -59,9 +60,7 @@ export function createClaudeCodeRoutes({
       const body = JSON.parse((await readBody(req)).toString("utf8"));
       const payload = parseHookPayload(body);
       const state = await store.applyHook(payload, async () => discoverSession?.(payload.session_id));
-      if (config.notifyStates.includes(state.state)) {
-        requestHeartbeatNow?.();
-      }
+      dispatcher?.onStateChanged(state);
       sendJson(res, 200, { ok: true });
     } catch (err) {
       // Claude Code must not be blocked by hook failures; always return 200
