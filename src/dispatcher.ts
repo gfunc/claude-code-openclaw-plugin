@@ -4,50 +4,36 @@ import type { SessionState } from "./state.js";
 
 export type BehaviorDispatcher = {
   onStateChanged(state: SessionState): void;
-  flushAnnouncements(sessionKey: string): Array<{ text: string; enqueued: boolean }>;
   getPendingAnnounceSessionIds(): string[];
 };
 
 export function createBehaviorDispatcher(options: {
-  requestHeartbeat: (opts?: { reason?: string }) => void;
-  enqueueSystemEvent?: (text: string, opts: { sessionKey: string }) => void;
+  enqueueSystemEvent: (text: string, opts: { sessionKey: string; contextKey: string }) => boolean;
   notifyStates: ClaudeCodeState[];
+  sessionKey: string;
 }): BehaviorDispatcher {
-  const { requestHeartbeat, enqueueSystemEvent, notifyStates } = options;
-  const pendingAnnounce = new Map<string, string>();
+  const { enqueueSystemEvent, notifyStates, sessionKey } = options;
   const announcedOnce = new Set<string>();
 
   function onStateChanged(state: SessionState): void {
     const behavior = resolveBehavior(state.state, notifyStates);
-    if (behavior.wake) {
-      requestHeartbeat({ reason: `claude-code:${state.state.toLowerCase()}` });
-    }
-    if (behavior.announce) {
-      if (behavior.oneShotAnnounce) {
-        if (announcedOnce.has(state.sessionId)) return;
-        announcedOnce.add(state.sessionId);
-      }
-      const text = `${behavior.prefix} Claude Code session ${state.tmuxSession ?? state.sessionId} is ${behavior.message}`;
-      pendingAnnounce.set(state.sessionId, text);
-    }
-  }
+    if (!behavior.announce) return;
+    if (behavior.oneShotAnnounce && announcedOnce.has(state.sessionId)) return;
+    if (behavior.oneShotAnnounce) announcedOnce.add(state.sessionId);
 
-  function flushAnnouncements(sessionKey: string): Array<{ text: string; enqueued: boolean }> {
-    const results: Array<{ text: string; enqueued: boolean }> = [];
-    for (const [sessionId, text] of pendingAnnounce) {
-      const enqueued = Boolean(enqueueSystemEvent);
-      if (enqueueSystemEvent) {
-        enqueueSystemEvent(text, { sessionKey });
-      }
-      results.push({ text, enqueued });
-      pendingAnnounce.delete(sessionId);
+    const text = `${behavior.prefix} Claude Code session ${state.tmuxSession ?? state.sessionId} is ${behavior.message}`;
+    try {
+      enqueueSystemEvent(text, { sessionKey, contextKey: state.sessionId });
+    } catch (err) {
+      // Best-effort: don't let notification failures break hook processing.
+      // eslint-disable-next-line no-console
+      console.error("claude-code: enqueueSystemEvent failed:", err);
     }
-    return results;
   }
 
   function getPendingAnnounceSessionIds(): string[] {
-    return Array.from(pendingAnnounce.keys());
+    return [];
   }
 
-  return { onStateChanged, flushAnnouncements, getPendingAnnounceSessionIds };
+  return { onStateChanged, getPendingAnnounceSessionIds };
 }
