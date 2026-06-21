@@ -27,6 +27,7 @@ export const pluginConfigSchema = z.object({
   ]),
   sendKeysRateLimitPerMinute: z.number().int().positive().default(10),
   sessionTimeoutSeconds: z.number().int().positive().default(300),
+  targetSessionKey: z.string().default("agent:main:main"),
 });
 
 export type PluginConfig = z.infer<typeof pluginConfigSchema>;
