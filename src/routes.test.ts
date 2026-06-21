@@ -52,6 +52,7 @@ describe("createClaudeCodeRoutes", () => {
     notifyStates: ["WAITING"],
     sendKeysRateLimitPerMinute: 10,
     sessionTimeoutSeconds: 300,
+    targetSessionKey: "agent:main:main",
     stateFileDir: "/tmp/routes-test",
   };
 
@@ -59,7 +60,6 @@ describe("createClaudeCodeRoutes", () => {
     store = createSessionStore({ stateFileDir: "/tmp/routes-test" });
     dispatcher = {
       onStateChanged: vi.fn(),
-      flushAnnouncements: vi.fn(() => []),
       getPendingAnnounceSessionIds: vi.fn(() => []),
     } as unknown as BehaviorDispatcher;
     sendKeys = vi.fn();

@@ -52,33 +52,19 @@ const plugin: OpenClawPluginDefinition = definePluginEntry({
     const rawConfig = api.pluginConfig ?? {};
     const config = resolvePluginConfig(rawConfig);
     const store = createSessionStore({ stateFileDir: config.stateFileDir });
-    const requestHeartbeat = (opts?: { reason?: string }) => {
-      try {
-        api.runtime.system.requestHeartbeat({
-          source: "hook",
-          intent: "immediate",
-          reason: opts?.reason ?? "claude-code:state-changed",
-        });
-      } catch {
-        // Fallback to deprecated API if requestHeartbeat is unavailable.
-        try {
-          api.runtime.system.requestHeartbeatNow();
-        } catch {
-          // ignore
-        }
-      }
-    };
 
     const dispatcher = createBehaviorDispatcher({
-      requestHeartbeat,
       enqueueSystemEvent: (text, opts) => {
         try {
-          api.runtime.system.enqueueSystemEvent(text, opts);
-        } catch {
-          // ignore
+          return api.runtime.system.enqueueSystemEvent(text, opts);
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.error("claude-code: enqueueSystemEvent failed:", err);
+          return false;
         }
       },
       notifyStates: config.notifyStates,
+      sessionKey: config.targetSessionKey,
     });
 
     const routes = createClaudeCodeRoutes({
@@ -118,23 +104,18 @@ const plugin: OpenClawPluginDefinition = definePluginEntry({
       path: `${config.routePrefix}/`,
       auth: "plugin",
       match: "prefix",
-      handler: routes.dispatch, // handles <tmux>/send, <session>/stop, <session>/restore
+      handler: routes.dispatch,
     });
 
     api.registerHook(
       "heartbeat_prompt_contribution",
-      (async (event) => {
+      (async () => {
         const ctx = buildClaudeCodeContext({
           sessions: store.listStates(),
           notifyStates: config.notifyStates,
         });
-        if (!ctx) return;
-        const sessionKey = (event as { sessionKey?: string }).sessionKey;
-        if (sessionKey) {
-          dispatcher.flushAnnouncements(sessionKey);
-        }
-        return { appendContext: ctx };
-      }) as Parameters<OpenClawPluginApi["registerHook"]>[1],
+        return { appendContext: ctx ?? "" };
+      }) as unknown as Parameters<OpenClawPluginApi["registerHook"]>[1],
       {
         name: "claude-code-heartbeat-context",
         description: "Inject active Claude Code sessions into heartbeat prompts",
@@ -157,13 +138,13 @@ const plugin: OpenClawPluginDefinition = definePluginEntry({
           const now = Date.now();
           for (const state of store.listStates()) {
             if (now - state.lastSeenAt > config.sessionTimeoutSeconds * 1000) {
-                const updated = store.markFatal(
-                  state.sessionId,
-                  "no hook received within sessionTimeoutSeconds",
-                );
-                if (updated) {
-                  dispatcher.onStateChanged(updated);
-                }
+              const updated = store.markFatal(
+                state.sessionId,
+                "no hook received within sessionTimeoutSeconds",
+              );
+              if (updated) {
+                dispatcher.onStateChanged(updated);
+              }
             }
           }
         }, intervalMs);

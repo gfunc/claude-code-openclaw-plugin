@@ -25,7 +25,7 @@ export function resolveBehavior(
 ): ClaudeCodeBehavior {
   const base = STATE_BEHAVIOR[state];
   if (!notifyStates.includes(state)) {
-    return { ...base, announce: false };
+    return { ...base, prompt: false, announce: false };
   }
   return base;
 }

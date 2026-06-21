@@ -13,21 +13,15 @@ function createMockApi(pluginConfig?: Record<string, unknown>) {
   const httpRoutes: Array<{ path: string; handler: unknown }> = [];
   const tools: Array<{ name: string }> = [];
   const services: Array<{ id: string; start: () => Promise<void> }> = [];
-  const heartbeats: Array<Record<string, unknown>> = [];
   const systemEvents: Array<{ text: string; opts: Record<string, unknown> }> = [];
 
   const api = {
     pluginConfig,
     runtime: {
       system: {
-        requestHeartbeat: (opts: Record<string, unknown>) => {
-          heartbeats.push(opts);
-        },
-        requestHeartbeatNow: () => {
-          heartbeats.push({ now: true });
-        },
         enqueueSystemEvent: (text: string, opts: Record<string, unknown>) => {
           systemEvents.push({ text, opts });
+          return true;
         },
       },
     },
@@ -54,7 +48,7 @@ function createMockApi(pluginConfig?: Record<string, unknown>) {
     },
   };
 
-  return { api, hooks, httpRoutes, tools, services, heartbeats, systemEvents };
+  return { api, hooks, httpRoutes, tools, services, systemEvents };
 }
 
 describe("claude-code-openclaw-plugin", () => {
@@ -75,7 +69,7 @@ describe("claude-code-openclaw-plugin", () => {
     expect(contribution?.name).toBe("claude-code-heartbeat-context");
   });
 
-  it("heartbeat_prompt_contribution handler does not throw", async () => {
+  it("heartbeat_prompt_contribution handler returns appendContext", async () => {
     const { api, hooks } = createMockApi();
     entry.register!(api as never);
     const contribution = hooks.find((h) =>
@@ -84,7 +78,7 @@ describe("claude-code-openclaw-plugin", () => {
         : h.events === "heartbeat_prompt_contribution",
     );
     expect(contribution).toBeDefined();
-    const handler = contribution!.handler;
-    await expect(handler({ sessionKey: "test-session" })).resolves.not.toThrow();
+    const result = await contribution!.handler({ sessionKey: "test-session" });
+    expect(result).toEqual({ appendContext: "" });
   });
 });
