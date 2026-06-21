@@ -25,5 +25,8 @@
       "claude_code_restore",
       "claude_code_setup_hooks"
     ]
-  }
+  },
+  "skills": [
+    "./skills"
+  ]
 }
