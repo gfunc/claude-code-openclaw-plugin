@@ -1,5 +1,5 @@
 {
-  "name": "openclaw-plugin-claude-code-openclaw-plugin",
+  "name": "claude-code-openclaw-plugin",
   "version": "0.2.2",
   "type": "module",
   "private": true,
