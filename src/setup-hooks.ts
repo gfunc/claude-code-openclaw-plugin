@@ -8,15 +8,34 @@ export type SetupHooksConfig = {
   templatePath?: string;
 };
 
-const DEFAULT_TEMPLATE = path.join(
-  process.env.HOME ?? "/",
-  "Projects",
-  "claude-code-openclaw-plugin",
-  ".claude",
-  "settings.json",
-);
-
 const HOOK_URL = "http://127.0.0.1:18789/claude-code/hook";
+
+// Hook events the plugin tracks. Kept in code (not an external template file)
+// so setup works regardless of where the plugin is installed from (npm,
+// node_modules, a clone in any directory, etc).
+const HOOK_EVENTS = [
+  "SessionStart",
+  "SessionEnd",
+  "UserPromptSubmit",
+  "Stop",
+  "PreToolUse",
+  "PostToolUse",
+  "PostToolUseFailure",
+  "PermissionRequest",
+  "FileChanged",
+  "CwdChanged",
+  "Elicitation",
+  "ElicitationResult",
+] as const;
+
+function buildHookSettings(): string {
+  const hookEntry = {
+    matcher: "*",
+    hooks: [{ type: "http", url: HOOK_URL, timeout: 30 }],
+  };
+  const hooks = Object.fromEntries(HOOK_EVENTS.map((event) => [event, [hookEntry]]));
+  return JSON.stringify({ hooks }, null, 2) + "\n";
+}
 
 export async function setupHooks({
   repoPath,
@@ -29,7 +48,6 @@ export async function setupHooks({
   force?: boolean;
   templatePath?: string;
 }): Promise<{ success: boolean; target?: string; alreadyConfigured?: boolean; error?: string }> {
-  const template = templatePath ?? DEFAULT_TEMPLATE;
   const absRepo = path.resolve(repoPath);
   try {
     await fs.access(absRepo);
@@ -68,7 +86,11 @@ export async function setupHooks({
   }
 
   await fs.mkdir(path.dirname(target), { recursive: true });
-  await fs.copyFile(template, target);
+  if (templatePath) {
+    await fs.copyFile(templatePath, target);
+  } else {
+    await fs.writeFile(target, buildHookSettings(), "utf8");
+  }
   return { success: true, target };
 }
 

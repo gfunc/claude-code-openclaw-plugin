@@ -35,4 +35,20 @@ describe("claude_code_spawn tool", () => {
     expect(writeState).toHaveBeenCalled();
     expect(startWatchdog).toHaveBeenCalled();
   });
+
+  it("rejects unsafe tmux session names before running any command", async () => {
+    const exec = vi.fn();
+    const result = await spawnSession({
+      tmuxSession: "cc; rm -rf ~",
+      task: "echo hi",
+      exec,
+      writeState: vi.fn(),
+      startWatchdog: vi.fn(),
+      uuid: () => "test-uuid",
+      sleepMs: 0,
+    });
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("unsafe tmux session");
+    expect(exec).not.toHaveBeenCalled();
+  });
 });

@@ -60,7 +60,7 @@ function createMockApi(pluginConfig?: Record<string, unknown>) {
           systemEvents.push({ text, opts });
           return true;
         },
-        requestHeartbeat: (opts: Record<string, unknown>) => {
+        requestHeartbeatNow: (opts: Record<string, unknown>) => {
           heartbeatRequests.push(opts);
         },
       },
@@ -97,19 +97,13 @@ describe("claude-code-openclaw-plugin", () => {
     expect(entry.register).toBeTypeOf("function");
   });
 
-  it("registers heartbeat_prompt_contribution hook", () => {
-    const { api, hooks } = createMockApi();
+  it("registers a claude_code_send tool", () => {
+    const { api, tools } = createMockApi();
     entry.register!(api as never);
-    const contribution = hooks.find((h) =>
-      Array.isArray(h.events)
-        ? h.events.includes("heartbeat_prompt_contribution")
-        : h.events === "heartbeat_prompt_contribution",
-    );
-    expect(contribution).toBeDefined();
-    expect(contribution?.name).toBe("claude-code-heartbeat-context");
+    expect(tools.map((t) => t.name)).toContain("claude_code_send");
   });
 
-  it("heartbeat_prompt_contribution handler returns appendContext", async () => {
+  it("does not register a heartbeat_prompt_contribution hook (not a real hook event)", () => {
     const { api, hooks } = createMockApi();
     entry.register!(api as never);
     const contribution = hooks.find((h) =>
@@ -117,9 +111,7 @@ describe("claude-code-openclaw-plugin", () => {
         ? h.events.includes("heartbeat_prompt_contribution")
         : h.events === "heartbeat_prompt_contribution",
     );
-    expect(contribution).toBeDefined();
-    const result = await contribution!.handler({ sessionKey: "test-session" });
-    expect(result).toEqual({ appendContext: "" });
+    expect(contribution).toBeUndefined();
   });
 
   it("requests heartbeat through runtime system when target session differs from main", async () => {
@@ -142,12 +134,9 @@ describe("claude-code-openclaw-plugin", () => {
     expect(JSON.parse((res as unknown as { body: string }).body)).toEqual({ ok: true });
     expect(heartbeatRequests).toHaveLength(1);
     expect(heartbeatRequests[0]).toEqual({
-      source: "cron",
-      intent: "immediate",
       reason: "claude-code-state-change",
       sessionKey: "agent:cc-watcher:main",
       agentId: "cc-watcher",
-      heartbeat: { target: "last" },
     });
   });
 });

@@ -24,6 +24,7 @@ No bash wrappers, no manual `tmux` invocations, no JSONL tailing, no external st
 |------|--------------|
 | `claude_code_spawn` | Start an interactive Claude Code session in a new tmux pane, with task, budget, and workdir. |
 | `claude_code_status` | List tracked sessions; optional `state` filter. |
+| `claude_code_send` | Type text into a running session (answer a question, approve, or tell it to continue); submits by default. |
 | `claude_code_stop` | Kill a session's tmux pane. |
 | `claude_code_restore` | Spawn a new tmux pane that `--resume`s a previous session by id. |
 | `claude_code_setup_hooks` | Write hook config into a target repo's `.claude/settings.local.json` (or `.settings.json` with `shared=true`). |
@@ -59,17 +60,17 @@ Notifications go through OpenClaw's `enqueueSystemEvent` API, which injects a sy
 
 ## Active turn trigger
 
-By default, `enqueueSystemEvent` only inserts text into the target session's system-event queue; the target still waits for its next periodic heartbeat before acting on it. This plugin also calls `requestHeartbeat` so the target agent is woken immediately.
+By default, `enqueueSystemEvent` only inserts text into the target session's system-event queue; the target still waits for its next periodic heartbeat before acting on it. This plugin also calls `requestHeartbeatNow` so the target agent is woken immediately.
 
 How it works:
 
-1. A watched state change (e.g. `WAITING`) calls `enqueueSystemEvent(text, { sessionKey, contextKey: "cron:claude-code:<sessionId>" })`.
-2. If the enqueue succeeds, the dispatcher calls `api.runtime.system.requestHeartbeat({ source: "cron", intent: "immediate", reason: "claude-code-state-change", sessionKey, agentId, heartbeat: { target: "last" } })`.
-3. OpenClaw queues a pending wake with a 250 ms coalesce timer, then runs the heartbeat for the target session.
-4. The heartbeat prompt builder sees the `cron:` context key, includes the event as a cron event, and the target agent receives it on the current turn.
+1. A watched state change (e.g. `WAITING`) calls `enqueueSystemEvent(text, { sessionKey, contextKey: "cron:claude-code:<sessionId>" })`. The event text includes any question / error / result detail extracted from the hook payload, so the watcher sees *what* happened, not just *that* something happened.
+2. If the enqueue succeeds, the dispatcher calls `api.runtime.system.requestHeartbeatNow({ reason: "claude-code-state-change", sessionKey, agentId })`.
+3. OpenClaw queues a pending wake with a coalesce timer, then runs the heartbeat for the target session.
+4. The heartbeat prompt drains the queued system event (the `cron:` context key marks it as a cron event) and the target agent receives it on the current turn.
 5. A 1-second per-session throttle prevents duplicate heartbeat requests when a session flaps through multiple hook events.
 
-`enqueueSystemEvent` is kept as the primary notification path; `requestHeartbeat` is a best-effort wake that is isolated in its own try/catch so a heartbeat failure never breaks hook processing.
+`enqueueSystemEvent` is the primary notification path; `requestHeartbeatNow` is a best-effort wake isolated in its own try/catch so a heartbeat failure never breaks hook processing.
 
 ## Ideal workflow
 
@@ -86,7 +87,7 @@ How it works:
          }
        },
        "load": {
-         "paths": ["/home/georgefu/Projects/claude-code-openclaw-plugin"]
+          "paths": ["/path/to/claude-code-openclaw-plugin"]
        }
      }
    }
@@ -107,7 +108,7 @@ How it works:
 
 4. **Let it run.** The plugin receives events, tracks state, and pushes notifications to `targetSessionKey`. When the session hits `WAITING`, `QUESTION`, `PERMISSION`, `ERROR`, `DONE`, or `FATAL`, the target session is woken immediately.
 
-5. **Watcher responds.** The watcher agent sees the cron event in its heartbeat prompt — e.g. "⚠️ Claude Code session cc-auth is waiting for input" — and can decide to reply, ask the user, or forward a summary to another agent such as `agent:main:main`.
+5. **Watcher responds.** The watcher agent sees the cron event in its heartbeat prompt — e.g. "⚠️ Claude Code session cc-auth is waiting for an answer: Which database should I use?" — and can decide to answer it directly with `claude_code_send({ tmuxSession: "cc-auth", text: "postgres" })`, tell it to continue, ask you, or forward a summary to another agent such as `agent:main:main`.
 
 6. **Clean up.** Use `claude_code_stop` or the HTTP route when the session is no longer needed.
 
@@ -116,7 +117,7 @@ How it works:
 ```bash
 npm install
 npm run build       # tsc → dist/
-npm test            # 82 tests across 17 files
+npm test            # 90 tests across 18 files
 ```
 
 ## Configuration

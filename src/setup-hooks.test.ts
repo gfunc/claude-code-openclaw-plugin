@@ -20,4 +20,18 @@ describe("claude_code_setup_hooks tool", () => {
     const written = await fs.readFile(details.target, "utf8");
     expect(written).toContain("http://127.0.0.1:18789/claude-code/hook");
   });
+
+  it("writes embedded hook settings when no template is provided", async () => {
+    const repo = await fs.mkdtemp(path.join(os.tmpdir(), "setup-hooks-embed-"));
+    const tool = createClaudeCodeSetupHooksTool();
+    const result = await tool.execute("tc-2", { repoPath: repo });
+    const details = result.details as { success: boolean; target: string };
+
+    expect(details.success).toBe(true);
+    const written = await fs.readFile(details.target, "utf8");
+    expect(written).toContain("http://127.0.0.1:18789/claude-code/hook");
+    const parsed = JSON.parse(written) as { hooks: Record<string, unknown> };
+    expect(Object.keys(parsed.hooks)).toContain("Stop");
+    expect(Object.keys(parsed.hooks)).toContain("Elicitation");
+  });
 });

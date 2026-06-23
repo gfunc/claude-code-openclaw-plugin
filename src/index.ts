@@ -16,9 +16,9 @@ import { createClaudeCodeStatusTool } from "./tools.js";
 import { createClaudeCodeSpawnTool } from "./spawn.js";
 import { createClaudeCodeStopTool } from "./stop.js";
 import { createClaudeCodeRestoreTool } from "./restore.js";
+import { createClaudeCodeSendTool } from "./send.js";
 import { createClaudeCodeSetupHooksTool } from "./setup-hooks.js";
 import { createBehaviorDispatcher } from "./dispatcher.js";
-import { buildClaudeCodeContext } from "./context.js";
 
 const pluginConfigJsonSchema = {
   type: "object",
@@ -65,10 +65,10 @@ const plugin: OpenClawPluginDefinition = definePluginEntry({
       },
       requestHeartbeat: (opts) => {
         try {
-          api.runtime.system.requestHeartbeat(opts);
+          api.runtime.system.requestHeartbeatNow(opts);
         } catch (err) {
           // eslint-disable-next-line no-console
-          console.error("claude-code: requestHeartbeat failed:", err);
+          console.error("claude-code: requestHeartbeatNow failed:", err);
         }
       },
       notifyStates: config.notifyStates,
@@ -115,25 +115,11 @@ const plugin: OpenClawPluginDefinition = definePluginEntry({
       handler: routes.dispatch,
     });
 
-    api.registerHook(
-      "heartbeat_prompt_contribution",
-      (async () => {
-        const ctx = buildClaudeCodeContext({
-          sessions: store.listStates(),
-          notifyStates: config.notifyStates,
-        });
-        return { appendContext: ctx ?? "" };
-      }) as unknown as Parameters<OpenClawPluginApi["registerHook"]>[1],
-      {
-        name: "claude-code-heartbeat-context",
-        description: "Inject active Claude Code sessions into heartbeat prompts",
-      },
-    );
-
     api.registerTool(createClaudeCodeStatusTool(store));
     api.registerTool(createClaudeCodeSpawnTool());
     api.registerTool(createClaudeCodeStopTool());
     api.registerTool(createClaudeCodeRestoreTool());
+    api.registerTool(createClaudeCodeSendTool());
     api.registerTool(createClaudeCodeSetupHooksTool());
 
     let timeoutTimer: NodeJS.Timeout | undefined;
@@ -145,6 +131,9 @@ const plugin: OpenClawPluginDefinition = definePluginEntry({
         timeoutTimer = setInterval(() => {
           const now = Date.now();
           for (const state of store.listStates()) {
+            // Terminal states are not "stalled"; don't flip a finished or
+            // already-fatal session to FATAL and fire a spurious 🚨 alert.
+            if (state.state === "DONE" || state.state === "FATAL") continue;
             if (now - state.lastSeenAt > config.sessionTimeoutSeconds * 1000) {
               const updated = store.markFatal(
                 state.sessionId,

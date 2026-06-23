@@ -29,4 +29,18 @@ describe("claude_code_restore tool", () => {
     expect(writeState).toHaveBeenCalled();
     expect(startWatchdog).toHaveBeenCalled();
   });
+
+  it("rejects unsafe session ids before running any command", async () => {
+    const exec = vi.fn();
+    const result = await restoreSession({
+      sessionId: "'; rm -rf ~; '",
+      tmuxSession: "cc-resume",
+      exec,
+      writeState: vi.fn(),
+      startWatchdog: vi.fn(),
+    });
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("unsafe session id");
+    expect(exec).not.toHaveBeenCalled();
+  });
 });

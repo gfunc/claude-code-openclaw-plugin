@@ -3,6 +3,7 @@ import type { AnyAgentTool } from "openclaw/plugin-sdk/plugin-entry";
 import { jsonResult } from "openclaw/plugin-sdk/core";
 import { runCommandWithTimeout } from "openclaw/plugin-sdk/process-runtime";
 import type { ExecFn } from "./tmux.js";
+import { assertSafeSessionId, assertSafeTmuxSession } from "./tmux.js";
 import crypto from "node:crypto";
 import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
@@ -107,6 +108,11 @@ export async function spawnSession({
   const stateFile = path.join(tasksDir, `${tmuxSession}.state`);
 
   try {
+    // These values are interpolated into shell command strings (tmux
+    // new-session and the watchdog bash script); reject anything that could
+    // break out and inject commands.
+    assertSafeTmuxSession(tmuxSession);
+    assertSafeSessionId(sessionId);
     await exec(["tmux", "kill-session", "-t", tmuxSession], { timeoutMs: 5000 }).catch(() => {});
     await fs.rm(logFile, { force: true });
     await fs.rm(stateFile, { force: true });

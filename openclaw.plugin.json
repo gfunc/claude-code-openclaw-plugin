@@ -24,6 +24,7 @@
       "claude_code_spawn",
       "claude_code_stop",
       "claude_code_restore",
+      "claude_code_send",
       "claude_code_setup_hooks"
     ]
   },

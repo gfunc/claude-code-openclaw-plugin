@@ -11,11 +11,18 @@ describe("sendKeysToTmuxSession", () => {
     );
   });
 
-  it("appends Enter when submit is true", async () => {
+  it("sends Enter as a separate keypress when submit is true", async () => {
     const exec = vi.fn().mockResolvedValue({ stdout: "", stderr: "", code: 0 });
     await sendKeysToTmuxSession({ tmuxSession: "cc-test", text: "yes", submit: true, exec });
-    expect(exec).toHaveBeenCalledWith(
-      ["tmux", "send-keys", "-t", "cc-test", "-l", "yes", "Enter"],
+    expect(exec).toHaveBeenNthCalledWith(
+      1,
+      ["tmux", "send-keys", "-t", "cc-test", "-l", "yes"],
+      { timeoutMs: 5000 },
+    );
+    // Enter must NOT carry -l, otherwise tmux types the literal text "Enter".
+    expect(exec).toHaveBeenNthCalledWith(
+      2,
+      ["tmux", "send-keys", "-t", "cc-test", "Enter"],
       { timeoutMs: 5000 },
     );
   });

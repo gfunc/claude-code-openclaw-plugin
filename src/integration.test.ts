@@ -29,6 +29,7 @@ function mockRes(): ServerResponse {
 describe("hook event enqueues system event", () => {
   it("WAITING hook triggers enqueueSystemEvent", async () => {
     const systemEvents: Array<{ text: string; opts: Record<string, unknown> }> = [];
+    const heartbeats: Array<Record<string, unknown>> = [];
     const routes: Array<{
       path: string;
       handler: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
@@ -46,7 +47,9 @@ describe("hook event enqueues system event", () => {
             systemEvents.push({ text, opts });
             return true;
           },
-          requestHeartbeat: () => {},
+          requestHeartbeatNow: (opts: Record<string, unknown>) => {
+            heartbeats.push(opts);
+          },
         },
       },
       registerHttpRoute: (params: {
@@ -77,6 +80,13 @@ describe("hook event enqueues system event", () => {
     expect(systemEvents[0].opts).toMatchObject({
       sessionKey: "agent:main:main",
       contextKey: "cron:claude-code:integration-s1",
+    });
+    // The immediate wake must fire so the watcher reacts this turn.
+    expect(heartbeats).toHaveLength(1);
+    expect(heartbeats[0]).toMatchObject({
+      reason: "claude-code-state-change",
+      sessionKey: "agent:main:main",
+      agentId: "main",
     });
   });
 });

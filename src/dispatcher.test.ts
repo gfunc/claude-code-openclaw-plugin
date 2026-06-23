@@ -30,6 +30,26 @@ describe("createBehaviorDispatcher", () => {
     );
   });
 
+  it("includes the question/detail text from the hook payload", () => {
+    const enqueueSystemEvent = vi.fn(() => true);
+    const dispatcher = createBehaviorDispatcher({
+      enqueueSystemEvent,
+      notifyStates: ["QUESTION"],
+      sessionKey: "agent:main:main",
+    });
+    const session = makeSession("QUESTION", "sq");
+    session.lastHookPayload = {
+      hook_event_name: "Elicitation",
+      session_id: "sq",
+      message: "Which database should I use?",
+    };
+    dispatcher.onStateChanged(session);
+    expect(enqueueSystemEvent).toHaveBeenCalledWith(
+      expect.stringContaining("Which database should I use?"),
+      { sessionKey: "agent:main:main", contextKey: "cron:claude-code:sq" },
+    );
+  });
+
   it("does not enqueue for WORKING", () => {
     const enqueueSystemEvent = vi.fn(() => true);
     const dispatcher = createBehaviorDispatcher({
@@ -76,12 +96,9 @@ describe("createBehaviorDispatcher", () => {
     dispatcher.onStateChanged(makeSession("DONE", "s7"));
     expect(enqueueSystemEvent).toHaveBeenCalledTimes(1);
     expect(requestHeartbeat).toHaveBeenCalledWith({
-      source: "cron",
-      intent: "immediate",
       reason: "claude-code-state-change",
       sessionKey: "agent:cc-watcher:main",
       agentId: "cc-watcher",
-      heartbeat: { target: "last" },
     });
   });
 
