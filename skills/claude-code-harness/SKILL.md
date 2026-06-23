@@ -53,7 +53,7 @@ Notification behavior is controlled by the `notifyStates` plugin config (default
 
 When a tracked session enters a state that's in `notifyStates`, the plugin calls OpenClaw's `enqueueSystemEvent` API. This injects a text event into the main session's queue. On the next turn, you'll see it in your prompt context, formatted like:
 
-> `[2026-06-21 20:32:07 GMT+8] ⚠️ Claude Code session cc-fix-bug is waiting for input`
+> `[<timestamp>] ⚠️ Claude Code session <tmux-session> is waiting for input`
 
 The prefix (`⚠️` / `🚨` / `ℹ️`) and message template come from the plugin's `STATE_BEHAVIOR` table — one entry per state, no branching per call site. The event text also carries any question / error / result detail pulled from the hook payload, so you see *what* happened, not just *that* something did.
 
@@ -79,9 +79,9 @@ Set a stricter mode when you want a human or OpenClaw in the loop:
 **Live, mid-session.** Claude Code cycles its mode with **Shift+Tab**. tmux's name for Shift+Tab is `BTab`, so send it via `claude_code_send`:
 
 ```text
-claude_code_read({ tmuxSession: "cc-auth" })                 // see the current mode first
-claude_code_send({ tmuxSession: "cc-auth", keys: ["BTab"] }) // cycle mode (Shift+Tab)
-claude_code_send({ tmuxSession: "cc-auth", keys: ["Tab"] })  // plain Tab
+claude_code_read({ tmuxSession: "<tmux-session>" })           // see the current mode first
+claude_code_send({ tmuxSession: "<tmux-session>", keys: ["BTab"] }) // cycle mode (Shift+Tab)
+claude_code_send({ tmuxSession: "<tmux-session>", keys: ["Tab"] })  // plain Tab
 ```
 
 **Answering a PERMISSION / QUESTION prompt** (only happens in a non-bypass mode):

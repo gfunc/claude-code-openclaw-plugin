@@ -94,9 +94,9 @@ The default is `bypassPermissions` so spawned sessions run unattended (this is a
 Claude Code cycles its mode interactively with **Shift+Tab**. tmux's name for Shift+Tab is `BTab`, so send it through `claude_code_send`:
 
 ```text
-claude_code_read({ tmuxSession: "cc-auth" })                 // see the current mode first
-claude_code_send({ tmuxSession: "cc-auth", keys: ["BTab"] }) // cycle mode (Shift+Tab)
-claude_code_send({ tmuxSession: "cc-auth", keys: ["Tab"] })  // plain Tab
+claude_code_read({ tmuxSession: "<tmux-session>" })           // see the current mode first
+claude_code_send({ tmuxSession: "<tmux-session>", keys: ["BTab"] }) // cycle mode (Shift+Tab)
+claude_code_send({ tmuxSession: "<tmux-session>", keys: ["Tab"] })  // plain Tab
 ```
 
 ### Answering a PERMISSION or QUESTION prompt
@@ -154,13 +154,13 @@ How it works:
 
 3. **Spawn a Claude Code session.** From OpenClaw:
    ```text
-   claude_code_spawn({ workdir: "/path/to/target/repo", task: "Refactor the auth module", tmuxSession: "cc-auth", budgetMinutes: 30 })
+   claude_code_spawn({ workdir: "/path/to/target/repo", task: "Refactor the auth module", tmuxSession: "<tmux-session>", budgetMinutes: 30 })
    ```
    The session starts inside tmux and begins reporting hook events.
 
 4. **Let it run.** The plugin receives events, tracks state, and pushes notifications to `targetSessionKey`. When the session hits `WAITING`, `QUESTION`, `PERMISSION`, `ERROR`, `DONE`, or `FATAL`, the target session is woken immediately.
 
-5. **Watcher responds.** The watcher agent sees the cron event in its heartbeat prompt — e.g. "⚠️ Claude Code session cc-auth is waiting for an answer: Which database should I use?" — and can decide to answer it directly with `claude_code_send({ tmuxSession: "cc-auth", text: "postgres" })`, tell it to continue, ask you, or forward a summary to another agent such as `agent:main:main`.
+5. **Watcher responds.** The watcher agent sees the cron event in its heartbeat prompt — for example, `⚠️ Claude Code session <tmux-session> is waiting for an answer: <question>` — and can decide to answer it directly with `claude_code_send({ tmuxSession: "<tmux-session>", text: "<answer>" })`, tell it to continue, ask you, or forward a summary to another agent such as `agent:main:main`.
 
 6. **Clean up.** Use `claude_code_stop` or the HTTP route when the session is no longer needed.
 
