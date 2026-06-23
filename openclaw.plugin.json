@@ -12,7 +12,8 @@
       "stateFileDir": { "type": "string", "default": "~/.cache/claude-code-hooks" },
       "notifyStates": { "type": "array", "items": { "type": "string" }, "default": ["WAITING", "QUESTION", "PERMISSION", "ERROR", "DONE"] },
       "sendKeysRateLimitPerMinute": { "type": "number", "default": 10 },
-      "sessionTimeoutSeconds": { "type": "number", "default": 300 }
+      "sessionTimeoutSeconds": { "type": "number", "default": 300 },
+      "targetSessionKey": { "type": "string", "default": "agent:main:main" }
     },
     "required": []
   },
