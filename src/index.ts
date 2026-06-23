@@ -63,6 +63,14 @@ const plugin: OpenClawPluginDefinition = definePluginEntry({
           return false;
         }
       },
+      requestHeartbeat: (opts) => {
+        try {
+          api.runtime.system.requestHeartbeat(opts);
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.error("claude-code: requestHeartbeat failed:", err);
+        }
+      },
       notifyStates: config.notifyStates,
       sessionKey: config.targetSessionKey,
     });

@@ -63,4 +63,63 @@ describe("createBehaviorDispatcher", () => {
     dispatcher.onStateChanged(makeSession("DONE", "s6"));
     expect(enqueueSystemEvent).not.toHaveBeenCalled();
   });
+
+  it("requests immediate heartbeat after enqueuing a state-change event", () => {
+    const enqueueSystemEvent = vi.fn(() => true);
+    const requestHeartbeat = vi.fn();
+    const dispatcher = createBehaviorDispatcher({
+      enqueueSystemEvent,
+      requestHeartbeat,
+      notifyStates: ["DONE"],
+      sessionKey: "agent:cc-watcher:main",
+    });
+    dispatcher.onStateChanged(makeSession("DONE", "s7"));
+    expect(enqueueSystemEvent).toHaveBeenCalledTimes(1);
+    expect(requestHeartbeat).toHaveBeenCalledWith({
+      source: "hook",
+      intent: "immediate",
+      reason: "claude-code-state-change",
+      sessionKey: "agent:cc-watcher:main",
+    });
+  });
+
+  it("throttles heartbeat requests within 1 second for the same session", () => {
+    const enqueueSystemEvent = vi.fn(() => true);
+    const requestHeartbeat = vi.fn();
+    const dispatcher = createBehaviorDispatcher({
+      enqueueSystemEvent,
+      requestHeartbeat,
+      notifyStates: ["DONE"],
+      sessionKey: "agent:cc-watcher:main",
+    });
+    const state = makeSession("DONE", "s8");
+    dispatcher.onStateChanged(state);
+    dispatcher.onStateChanged(state);
+    expect(enqueueSystemEvent).toHaveBeenCalledTimes(2);
+    expect(requestHeartbeat).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not request heartbeat when enqueueSystemEvent returns false", () => {
+    const enqueueSystemEvent = vi.fn(() => false);
+    const requestHeartbeat = vi.fn();
+    const dispatcher = createBehaviorDispatcher({
+      enqueueSystemEvent,
+      requestHeartbeat,
+      notifyStates: ["DONE"],
+      sessionKey: "agent:cc-watcher:main",
+    });
+    dispatcher.onStateChanged(makeSession("DONE", "s9"));
+    expect(requestHeartbeat).not.toHaveBeenCalled();
+  });
+
+  it("does not request heartbeat when requestHeartbeat is not provided", () => {
+    const enqueueSystemEvent = vi.fn(() => true);
+    const dispatcher = createBehaviorDispatcher({
+      enqueueSystemEvent,
+      notifyStates: ["DONE"],
+      sessionKey: "agent:cc-watcher:main",
+    });
+    dispatcher.onStateChanged(makeSession("DONE", "s10"));
+    expect(enqueueSystemEvent).toHaveBeenCalledTimes(1);
+  });
 });

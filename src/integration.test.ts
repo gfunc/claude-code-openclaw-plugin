@@ -46,6 +46,7 @@ describe("hook event enqueues system event", () => {
             systemEvents.push({ text, opts });
             return true;
           },
+          requestHeartbeat: () => {},
         },
       },
       registerHttpRoute: (params: {
