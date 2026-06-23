@@ -53,6 +53,7 @@ describe("createClaudeCodeRoutes", () => {
     sendKeysRateLimitPerMinute: 10,
     sessionTimeoutSeconds: 300,
     targetSessionKey: "agent:main:main",
+    permissionMode: "bypassPermissions",
     stateFileDir: "/tmp/routes-test",
   };
 

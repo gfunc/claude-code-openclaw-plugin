@@ -11,6 +11,7 @@ describe("resolvePluginConfig", () => {
       path.join(os.homedir(), ".cache", "claude-code-hooks")
     );
     expect(cfg.targetSessionKey).toBe("agent:main:main");
+    expect(cfg.permissionMode).toBe("bypassPermissions");
   });
 
   it("expands tilde in stateFileDir", () => {
@@ -27,5 +28,10 @@ describe("resolvePluginConfig", () => {
   it("uses provided targetSessionKey", () => {
     const cfg = resolvePluginConfig({ targetSessionKey: "agent:other" });
     expect(cfg.targetSessionKey).toBe("agent:other");
+  });
+
+  it("uses provided permissionMode", () => {
+    const cfg = resolvePluginConfig({ permissionMode: "default" });
+    expect(cfg.permissionMode).toBe("default");
   });
 });

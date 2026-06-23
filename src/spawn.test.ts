@@ -51,4 +51,31 @@ describe("claude_code_spawn tool", () => {
     expect(result.error).toContain("unsafe tmux session");
     expect(exec).not.toHaveBeenCalled();
   });
+
+  it("omits bypassPermissions flag when permissionMode is default", async () => {
+    const exec = vi.fn();
+    exec.mockResolvedValueOnce({ code: 0, stdout: "", stderr: "" }); // kill-session
+    exec.mockResolvedValueOnce({ code: 0, stdout: "", stderr: "" }); // new-session
+    exec.mockResolvedValueOnce({ code: 0, stdout: "", stderr: "" }); // pipe-pane
+    exec.mockResolvedValueOnce({ code: 0, stdout: "", stderr: "" }); // capture-pane
+    exec.mockResolvedValueOnce({ code: 0, stdout: "", stderr: "" }); // load-buffer
+    exec.mockResolvedValueOnce({ code: 0, stdout: "", stderr: "" }); // paste-buffer
+
+    const result = await spawnSession({
+      tmuxSession: "cc-test",
+      task: "echo hello",
+      permissionMode: "default",
+      budgetMinutes: 5,
+      workdir: "/tmp",
+      exec,
+      writeState: vi.fn(),
+      startWatchdog: vi.fn(),
+      uuid: () => "test-uuid",
+      sleepMs: 0,
+    });
+
+    expect(result.success).toBe(true);
+    const newSessionArgv = exec.mock.calls[1]?.[0] as string[];
+    expect(newSessionArgv.join(" ")).not.toContain("--permission-mode bypassPermissions");
+  });
 });

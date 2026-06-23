@@ -43,4 +43,25 @@ describe("claude_code_restore tool", () => {
     expect(result.error).toContain("unsafe session id");
     expect(exec).not.toHaveBeenCalled();
   });
+
+  it("omits bypassPermissions flag when permissionMode is default", async () => {
+    const exec = vi.fn();
+    exec.mockResolvedValueOnce({ code: 0, stdout: "", stderr: "" }); // kill-session
+    exec.mockResolvedValueOnce({ code: 0, stdout: "", stderr: "" }); // new-session
+
+    const result = await restoreSession({
+      sessionId: "sid-123",
+      tmuxSession: "cc-resume",
+      permissionMode: "default",
+      workdir: "/tmp",
+      budgetMinutes: 10,
+      exec,
+      writeState: vi.fn(),
+      startWatchdog: vi.fn(),
+    });
+
+    expect(result.success).toBe(true);
+    const newSessionArgv = exec.mock.calls[1]?.[0] as string[];
+    expect(newSessionArgv.join(" ")).not.toContain("--permission-mode bypassPermissions");
+  });
 });

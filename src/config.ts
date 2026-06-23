@@ -14,6 +14,9 @@ export const ClaudeCodeState = z.enum([
 
 export type ClaudeCodeState = z.infer<typeof ClaudeCodeState>;
 
+export const ClaudePermissionMode = z.enum(["bypassPermissions", "default"]);
+export type ClaudePermissionMode = z.infer<typeof ClaudePermissionMode>;
+
 export const pluginConfigSchema = z.object({
   routePrefix: z.string().default("/claude-code"),
   eventTypes: z.array(z.string()).default(["*"]),
@@ -28,6 +31,7 @@ export const pluginConfigSchema = z.object({
   sendKeysRateLimitPerMinute: z.number().int().positive().default(10),
   sessionTimeoutSeconds: z.number().int().positive().default(300),
   targetSessionKey: z.string().default("agent:main:main"),
+  permissionMode: ClaudePermissionMode.default("bypassPermissions"),
 });
 
 export type PluginConfig = z.infer<typeof pluginConfigSchema>;

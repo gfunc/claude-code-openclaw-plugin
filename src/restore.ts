@@ -4,6 +4,7 @@ import { jsonResult } from "openclaw/plugin-sdk/core";
 import { runCommandWithTimeout } from "openclaw/plugin-sdk/process-runtime";
 import type { ExecFn } from "./tmux.js";
 import { assertSafeSessionId, assertSafeTmuxSession } from "./tmux.js";
+import type { ClaudePermissionMode } from "./config.js";
 import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -75,6 +76,7 @@ export async function restoreSession({
   tmuxSession = "cc-resume",
   workdir = process.cwd(),
   budgetMinutes = 30,
+  permissionMode = "bypassPermissions",
   exec = runCommandWithTimeout,
   tasksDir = DEFAULT_TASKS_DIR,
   writeState = defaultWriteState,
@@ -84,6 +86,7 @@ export async function restoreSession({
   tmuxSession?: string;
   workdir?: string;
   budgetMinutes?: number;
+  permissionMode?: ClaudePermissionMode;
 } & RestoreDeps): Promise<{
   success: boolean;
   sessionId: string;
@@ -108,6 +111,11 @@ export async function restoreSession({
     await fs.rm(stateFile, { force: true });
     await fs.rm(`${stateFile}.watchdog`, { force: true });
 
+    const permissionArgs =
+      permissionMode === "bypassPermissions"
+        ? " --permission-mode bypassPermissions"
+        : "";
+
     await exec(
       [
         "tmux",
@@ -117,7 +125,7 @@ export async function restoreSession({
         tmuxSession,
         "-c",
         workdir,
-        `claude --resume '${sessionId}' --permission-mode bypassPermissions 2>&1 | tee '${logFile}'`,
+        `claude --resume '${sessionId}'${permissionArgs} 2>&1 | tee '${logFile}'`,
       ],
       { timeoutMs: 10000 },
     );
@@ -149,7 +157,9 @@ export async function restoreSession({
   }
 }
 
-export function createClaudeCodeRestoreTool(_config?: unknown): AnyAgentTool {
+export function createClaudeCodeRestoreTool(config?: {
+  permissionMode?: ClaudePermissionMode;
+}): AnyAgentTool {
   return {
     label: "Claude Code Restore",
     name: "claude_code_restore",
@@ -167,13 +177,22 @@ export function createClaudeCodeRestoreTool(_config?: unknown): AnyAgentTool {
         workdir?: string;
         budgetMinutes?: number;
       };
-      const result = await restoreSession({ sessionId, tmuxSession, workdir, budgetMinutes });
+      const result = await restoreSession({
+        sessionId,
+        tmuxSession,
+        workdir,
+        budgetMinutes,
+        permissionMode: config?.permissionMode,
+      });
       return jsonResult(result);
     },
   };
 }
 
-export async function handleRestoreRoute(body: unknown): Promise<{ status: number; body: unknown }> {
+export async function handleRestoreRoute(
+  body: unknown,
+  config?: { permissionMode?: ClaudePermissionMode },
+): Promise<{ status: number; body: unknown }> {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     return { status: 400, body: { error: "invalid body" } };
   }
@@ -186,6 +205,7 @@ export async function handleRestoreRoute(body: unknown): Promise<{ status: numbe
     tmuxSession: typeof tmuxSession === "string" ? tmuxSession : undefined,
     workdir: typeof workdir === "string" ? workdir : undefined,
     budgetMinutes: typeof budgetMinutes === "number" ? budgetMinutes : undefined,
+    permissionMode: config?.permissionMode,
   });
   return { status: result.success ? 200 : 500, body: result };
 }

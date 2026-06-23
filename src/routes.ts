@@ -118,7 +118,9 @@ export function createClaudeCodeRoutes({
   async function spawn(req: IncomingMessage, res: ServerResponse): Promise<void> {
     try {
       const body = JSON.parse((await readBody(req)).toString("utf8"));
-      const { status, body: resp } = await handleSpawnRoute(body);
+      const { status, body: resp } = await handleSpawnRoute(body, {
+        permissionMode: config.permissionMode,
+      });
       sendJson(res, status, resp);
     } catch (err) {
       sendJson(res, 500, { error: String(err) });
@@ -185,7 +187,13 @@ export function createClaudeCodeRoutes({
         const budgetMinutes = typeof (payload as Record<string, unknown>).budgetMinutes === "number"
           ? (payload as Record<string, unknown>).budgetMinutes as number
           : undefined;
-        const result = await restoreSession({ sessionId, tmuxSession, workdir, budgetMinutes });
+        const result = await restoreSession({
+          sessionId,
+          tmuxSession,
+          workdir,
+          budgetMinutes,
+          permissionMode: config.permissionMode,
+        });
         sendJson(res, result.success ? 200 : 500, result);
         return;
       }

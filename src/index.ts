@@ -39,6 +39,11 @@ const pluginConfigJsonSchema = {
     sendKeysRateLimitPerMinute: { type: "number", default: 10 },
     sessionTimeoutSeconds: { type: "number", default: 300 },
     targetSessionKey: { type: "string", default: "agent:main:main" },
+    permissionMode: {
+      type: "string",
+      enum: ["bypassPermissions", "default"],
+      default: "bypassPermissions",
+    },
   },
   required: [],
 } as const;
@@ -116,9 +121,9 @@ const plugin: OpenClawPluginDefinition = definePluginEntry({
     });
 
     api.registerTool(createClaudeCodeStatusTool(store));
-    api.registerTool(createClaudeCodeSpawnTool());
+    api.registerTool(createClaudeCodeSpawnTool({ permissionMode: config.permissionMode }));
     api.registerTool(createClaudeCodeStopTool());
-    api.registerTool(createClaudeCodeRestoreTool());
+    api.registerTool(createClaudeCodeRestoreTool({ permissionMode: config.permissionMode }));
     api.registerTool(createClaudeCodeSendTool());
     api.registerTool(createClaudeCodeSetupHooksTool());
 

@@ -7,7 +7,7 @@ Standalone OpenClaw plugin that **spawns, monitors, and stops Claude Code sessio
 1. **Spawn** a Claude Code session in tmux with a task, budget, and workdir.
 2. **Track** every state change through Claude Code's native hook events (Stop, SessionEnd, Elicitation, PermissionRequest, PostToolUseFailure, ...).
 3. **Notify** the target session via `enqueueSystemEvent` whenever a tracked session enters a watched state (WAITING / QUESTION / PERMISSION / ERROR / DONE / FATAL).
-4. **Wake** the target session immediately via `requestHeartbeat` so it sees the notification on its next turn instead of waiting for the periodic heartbeat.
+4. **Wake** the target session immediately via `requestHeartbeatNow` so it sees the notification on its next turn instead of waiting for the periodic heartbeat.
 5. **Stop** or **resume** sessions by name.
 6. **Auto-install** hook config into a target repo (`.claude/settings.local.json`) so Claude Code pushes events back to the plugin.
 
@@ -82,7 +82,8 @@ How it works:
          "claude-code-openclaw-plugin": {
            "enabled": true,
            "config": {
-             "targetSessionKey": "agent:main:main"
+             "targetSessionKey": "agent:main:main",
+             "permissionMode": "bypassPermissions"
            }
          }
        },
@@ -93,6 +94,7 @@ How it works:
    }
    ```
    `targetSessionKey` is the session that will receive system-event notifications and heartbeat wakes. The default is `agent:main:main`; set it to a dedicated watcher agent (for example `agent:cc-watcher:main`) if you want a separate session to monitor Claude Code state.
+  `permissionMode` controls how Claude Code handles permission prompts when spawning or restoring sessions. Default is `bypassPermissions` (current behavior). Set `"permissionMode": "default"` if you want Claude Code to enforce normal permission prompts.
 
 2. **Install hooks in the repo you want to monitor.** From any OpenClaw agent session, run:
    ```text
@@ -130,6 +132,7 @@ All fields optional; defaults shown.
 | `stateFileDir` | `~/.cache/claude-code-hooks` | Where per-session state JSON lives. |
 | `notifyStates` | `[WAITING, QUESTION, PERMISSION, ERROR, DONE]` | States that trigger a system event push. |
 | `targetSessionKey` | `agent:main:main` | Which session receives the enqueued system events. |
+| `permissionMode` | `bypassPermissions` | Permission handling for spawn/restore: `bypassPermissions` (no prompts) or `default` (normal prompts). |
 | `sendKeysRateLimitPerMinute` | `10` | Per-session rate limit for `/send`. |
 | `sessionTimeoutSeconds` | `300` | Idle threshold for FATAL. |
 | `eventTypes` | `["*"]` | Hook event filter. |

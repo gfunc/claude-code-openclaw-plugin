@@ -4,6 +4,7 @@ import { jsonResult } from "openclaw/plugin-sdk/core";
 import { runCommandWithTimeout } from "openclaw/plugin-sdk/process-runtime";
 import type { ExecFn } from "./tmux.js";
 import { assertSafeSessionId, assertSafeTmuxSession } from "./tmux.js";
+import type { ClaudePermissionMode } from "./config.js";
 import crypto from "node:crypto";
 import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
@@ -81,6 +82,7 @@ export async function spawnSession({
   tmuxSession,
   task,
   budgetMinutes = 30,
+  permissionMode = "bypassPermissions",
   workdir = process.cwd(),
   exec = runCommandWithTimeout,
   tasksDir = DEFAULT_TASKS_DIR,
@@ -92,6 +94,7 @@ export async function spawnSession({
   tmuxSession: string;
   task: string;
   budgetMinutes?: number;
+  permissionMode?: ClaudePermissionMode;
   workdir?: string;
 } & SpawnDeps): Promise<{
   success: boolean;
@@ -118,6 +121,11 @@ export async function spawnSession({
     await fs.rm(stateFile, { force: true });
     await fs.rm(`${stateFile}.watchdog`, { force: true });
 
+    const permissionArgs =
+      permissionMode === "bypassPermissions"
+        ? " --permission-mode bypassPermissions"
+        : "";
+
     await exec(
       [
         "tmux",
@@ -127,7 +135,7 @@ export async function spawnSession({
         tmuxSession,
         "-c",
         workdir,
-        `claude --session-id '${sessionId}' --permission-mode bypassPermissions`,
+        `claude --session-id '${sessionId}'${permissionArgs}`,
       ],
       { timeoutMs: 10000 },
     );
@@ -189,7 +197,9 @@ export async function spawnSession({
   }
 }
 
-export function createClaudeCodeSpawnTool(_config?: unknown): AnyAgentTool {
+export function createClaudeCodeSpawnTool(config?: {
+  permissionMode?: ClaudePermissionMode;
+}): AnyAgentTool {
   return {
     label: "Claude Code Spawn",
     name: "claude_code_spawn",
@@ -208,13 +218,22 @@ export function createClaudeCodeSpawnTool(_config?: unknown): AnyAgentTool {
         budgetMinutes?: number;
         workdir?: string;
       };
-      const result = await spawnSession({ tmuxSession, task, budgetMinutes, workdir });
+      const result = await spawnSession({
+        tmuxSession,
+        task,
+        budgetMinutes,
+        permissionMode: config?.permissionMode,
+        workdir,
+      });
       return jsonResult(result);
     },
   };
 }
 
-export async function handleSpawnRoute(body: unknown): Promise<{ status: number; body: unknown }> {
+export async function handleSpawnRoute(
+  body: unknown,
+  config?: { permissionMode?: ClaudePermissionMode },
+): Promise<{ status: number; body: unknown }> {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     return { status: 400, body: { error: "invalid body" } };
   }
@@ -226,6 +245,7 @@ export async function handleSpawnRoute(body: unknown): Promise<{ status: number;
     tmuxSession,
     task,
     budgetMinutes: typeof budgetMinutes === "number" ? budgetMinutes : undefined,
+    permissionMode: config?.permissionMode,
     workdir: typeof workdir === "string" ? workdir : undefined,
   });
   return { status: result.success ? 200 : 500, body: result };
