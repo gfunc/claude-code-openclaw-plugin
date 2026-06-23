@@ -19,12 +19,14 @@ Do **not** use this skill for:
 - Interactive one-shot prompts — call `claude` directly, or `claude_code_spawn` if the task should survive a channel disconnect.
 - Non-Claude-Code CLIs (aider, codex, etc.) — this plugin is specific to Claude Code hook events.
 
-## The 5 tools (call from any agent)
+## The tools (call from any agent)
 
 | Tool | Use it when... |
 |------|----------------|
 | `claude_code_spawn` | you want to start a fresh Claude Code task in a tmux pane |
 | `claude_code_status` | you want to know what's running (optional `state` filter) |
+| `claude_code_read` | you need to see the live pane (current prompt, menu options, result) before acting |
+| `claude_code_send` | you want to answer a question, approve, type `continue`, switch mode, or drive a menu |
 | `claude_code_stop` | a session is hung or you want to abort |
 | `claude_code_restore` | you have a session id and want to continue (`--resume`) |
 | `claude_code_setup_hooks` | a target repo doesn't have hook config yet |
@@ -53,9 +55,41 @@ When a tracked session enters a state that's in `notifyStates`, the plugin calls
 
 > `[2026-06-21 20:32:07 GMT+8] ⚠️ Claude Code session cc-fix-bug is waiting for input`
 
-The prefix (`⚠️` / `🚨` / `ℹ️`) and message template come from the plugin's `STATE_BEHAVIOR` table — one entry per state, no branching per call site.
+The prefix (`⚠️` / `🚨` / `ℹ️`) and message template come from the plugin's `STATE_BEHAVIOR` table — one entry per state, no branching per call site. The event text also carries any question / error / result detail pulled from the hook payload, so you see *what* happened, not just *that* something did.
 
-This path **bypasses OpenClaw's heartbeat runner** deliberately. Earlier versions used `requestHeartbeat`, but that API has silent-skip paths (active reply runs, interval gating) that make it unreliable for "I just need to know right now" notifications. `enqueueSystemEvent` goes straight into the session queue and is consumed on the next turn unconditionally.
+`enqueueSystemEvent` is the **primary** path: it goes straight into the target session queue and is consumed on the next turn unconditionally. On top of that, the plugin calls `requestHeartbeatNow` (best-effort, in its own try/catch) to **wake the target session immediately** instead of waiting for the next periodic heartbeat. If the wake fails, the queued event is still delivered on the next turn — so the notification is never lost.
+
+## Permission and session mode
+
+Claude Code has a **permission mode** that decides how it handles tool use and file edits. The plugin controls it two ways.
+
+**At launch (config).** `permissionMode` in plugin config is passed to `claude --permission-mode <mode>` for every `claude_code_spawn` / `claude_code_restore`. The values mirror Claude Code:
+
+- `default` — Claude prompts before sensitive actions (normal interactive permissions).
+- `acceptEdits` — auto-accepts file edits, still prompts for other sensitive actions.
+- `plan` — plan mode: Claude only plans, makes **no** changes.
+- `bypassPermissions` — no prompts at all; fully autonomous. **This is the plugin default**, which is why `PERMISSION`/`QUESTION` rarely fire.
+
+Set a stricter mode when you want a human or OpenClaw in the loop:
+
+```json
+{ "plugins": { "entries": { "claude-code-openclaw-plugin": { "config": { "permissionMode": "plan" } } } } }
+```
+
+**Live, mid-session.** Claude Code cycles its mode with **Shift+Tab**. tmux's name for Shift+Tab is `BTab`, so send it via `claude_code_send`:
+
+```text
+claude_code_read({ tmuxSession: "cc-auth" })                 // see the current mode first
+claude_code_send({ tmuxSession: "cc-auth", keys: ["BTab"] }) // cycle mode (Shift+Tab)
+claude_code_send({ tmuxSession: "cc-auth", keys: ["Tab"] })  // plain Tab
+```
+
+**Answering a PERMISSION / QUESTION prompt** (only happens in a non-bypass mode):
+
+1. `claude_code_read({ tmuxSession })` — read the prompt and its options.
+2. `claude_code_send(...)` — type the answer (`text: "yes"`), pick a numbered option (`text: "2"`), or drive an arrow-highlight menu (`keys: ["Down", "Enter"]`).
+
+With the default `bypassPermissions`, Claude Code never raises these prompts — it just proceeds.
 
 ## Standalone — no external scripts
 
@@ -78,5 +112,5 @@ That's it. No `tmux` commands, no JSONL watchers, no env vars, no symlinks.
 
 - **Budget is enforced by an idle watchdog** (`sessionTimeoutSeconds` × heartbeat interval), not by wall-clock. As long as Claude Code keeps producing hook events, the session lives. If it goes silent for 5 minutes, the plugin marks it FATAL and the main session gets a one-shot notification.
 - **`targetSessionKey` defaults to `agent:main:main`.** If you want notifications delivered to a different session (e.g. a dedicated wecom channel), set this in plugin config.
-- **`PERMISSION` notifications are advisory.** The plugin trusts the `bypassPermissions` default and does not block; it only surfaces the request. If you want PERMISSION to halt, you must orchestrate that yourself.
+- **`PERMISSION` only fires in a non-bypass mode.** With the default `permissionMode: bypassPermissions`, Claude Code never raises permission prompts — it just proceeds. Set `permissionMode` to `default` / `acceptEdits` / `plan` to get `PERMISSION` / `QUESTION` gates, then answer them with `claude_code_read` + `claude_code_send`.
 - **FATAL is one-shot** because the session is dead — re-arming the notification would just spam the main session on every heartbeat forever.

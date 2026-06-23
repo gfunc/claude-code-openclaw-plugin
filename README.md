@@ -60,6 +60,54 @@ Claude Code hook events are mapped to a 7-state machine:
 
 Notifications go through OpenClaw's `enqueueSystemEvent` API, which injects a system event directly into the target session queue.
 
+## Permission & session mode
+
+Claude Code has a **permission mode** that decides how it handles tool use and file edits. The plugin controls it in two ways.
+
+### At launch — the `permissionMode` config
+
+`permissionMode` is passed straight to `claude --permission-mode <mode>` on every `claude_code_spawn` and `claude_code_restore`. The four values mirror Claude Code's own CLI:
+
+| Mode | Behavior |
+|------|----------|
+| `default` | Claude prompts before sensitive actions (normal interactive permissions). |
+| `acceptEdits` | Auto-accepts file edits; still prompts for other sensitive actions. |
+| `plan` | Plan mode — Claude only plans and makes **no** changes. |
+| `bypassPermissions` | No prompts at all; fully autonomous. **Plugin default.** |
+
+The default is `bypassPermissions` so spawned sessions run unattended (this is also why `PERMISSION`/`QUESTION` states rarely fire). Set a stricter mode when you want OpenClaw — or you — in the loop:
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "claude-code-openclaw-plugin": {
+        "config": { "permissionMode": "plan" }
+      }
+    }
+  }
+}
+```
+
+### Live, mid-session — switch the mode with a keypress
+
+Claude Code cycles its mode interactively with **Shift+Tab**. tmux's name for Shift+Tab is `BTab`, so send it through `claude_code_send`:
+
+```text
+claude_code_read({ tmuxSession: "cc-auth" })                 // see the current mode first
+claude_code_send({ tmuxSession: "cc-auth", keys: ["BTab"] }) // cycle mode (Shift+Tab)
+claude_code_send({ tmuxSession: "cc-auth", keys: ["Tab"] })  // plain Tab
+```
+
+### Answering a PERMISSION or QUESTION prompt
+
+These states only occur in a non-bypass mode. To respond:
+
+1. `claude_code_read({ tmuxSession })` — see the prompt and its options.
+2. `claude_code_send(...)` — type the answer (`text: "yes"`), pick a numbered option (`text: "2"`), or drive an arrow-highlight menu (`keys: ["Down", "Enter"]`).
+
+With the default `bypassPermissions`, Claude Code never raises these prompts — it just proceeds.
+
 ## Active turn trigger
 
 By default, `enqueueSystemEvent` only inserts text into the target session's system-event queue; the target still waits for its next periodic heartbeat before acting on it. This plugin also calls `requestHeartbeatNow` so the target agent is woken immediately.
