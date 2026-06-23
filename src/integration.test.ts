@@ -76,7 +76,7 @@ describe("hook event enqueues system event", () => {
     expect(systemEvents[0].text).toContain("waiting for input");
     expect(systemEvents[0].opts).toMatchObject({
       sessionKey: "agent:main:main",
-      contextKey: "integration-s1",
+      contextKey: "cron:claude-code:integration-s1",
     });
   });
 });

@@ -142,10 +142,12 @@ describe("claude-code-openclaw-plugin", () => {
     expect(JSON.parse((res as unknown as { body: string }).body)).toEqual({ ok: true });
     expect(heartbeatRequests).toHaveLength(1);
     expect(heartbeatRequests[0]).toEqual({
-      source: "hook",
+      source: "cron",
       intent: "immediate",
       reason: "claude-code-state-change",
       sessionKey: "agent:cc-watcher:main",
+      agentId: "cc-watcher",
+      heartbeat: { target: "last" },
     });
   });
 });

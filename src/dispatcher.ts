@@ -8,10 +8,12 @@ export type BehaviorDispatcher = {
 };
 
 export type HeartbeatRequestOptions = {
-  source: "hook";
+  source: "cron";
   intent: "immediate";
   reason: "claude-code-state-change";
   sessionKey: string;
+  agentId: string;
+  heartbeat: { target: "last" };
 };
 
 export function createBehaviorDispatcher(options: {
@@ -34,7 +36,10 @@ export function createBehaviorDispatcher(options: {
     const text = `${behavior.prefix} Claude Code session ${state.tmuxSession ?? state.sessionId} is ${behavior.message}`;
     let enqueued = false;
     try {
-      enqueued = enqueueSystemEvent(text, { sessionKey, contextKey: state.sessionId });
+      enqueued = enqueueSystemEvent(text, {
+        sessionKey,
+        contextKey: `cron:claude-code:${state.sessionId}`,
+      });
     } catch (err) {
       // Best-effort: don't let notification failures break hook processing.
       // eslint-disable-next-line no-console
@@ -49,12 +54,15 @@ export function createBehaviorDispatcher(options: {
     if (now - lastHeartbeat < HEARTBEAT_THROTTLE_MS) return;
     lastHeartbeatBySessionId.set(state.sessionId, now);
 
+    const agentId = sessionKey.split(":")[1] ?? "";
     try {
       requestHeartbeat({
-        source: "hook",
+        source: "cron",
         intent: "immediate",
         reason: "claude-code-state-change",
         sessionKey,
+        agentId,
+        heartbeat: { target: "last" },
       });
     } catch (err) {
       // Best-effort: heartbeat failure must not break hook processing.

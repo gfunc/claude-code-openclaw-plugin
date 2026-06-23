@@ -26,7 +26,7 @@ describe("createBehaviorDispatcher", () => {
     dispatcher.onStateChanged(makeSession("WAITING", "s1"));
     expect(enqueueSystemEvent).toHaveBeenCalledWith(
       expect.stringContaining("waiting for input"),
-      { sessionKey: "agent:main:main", contextKey: "s1" },
+      { sessionKey: "agent:main:main", contextKey: "cron:claude-code:s1" },
     );
   });
 
@@ -76,10 +76,12 @@ describe("createBehaviorDispatcher", () => {
     dispatcher.onStateChanged(makeSession("DONE", "s7"));
     expect(enqueueSystemEvent).toHaveBeenCalledTimes(1);
     expect(requestHeartbeat).toHaveBeenCalledWith({
-      source: "hook",
+      source: "cron",
       intent: "immediate",
       reason: "claude-code-state-change",
       sessionKey: "agent:cc-watcher:main",
+      agentId: "cc-watcher",
+      heartbeat: { target: "last" },
     });
   });
 
