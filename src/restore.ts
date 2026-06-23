@@ -3,7 +3,7 @@ import type { AnyAgentTool } from "openclaw/plugin-sdk/plugin-entry";
 import { jsonResult } from "openclaw/plugin-sdk/core";
 import { runCommandWithTimeout } from "openclaw/plugin-sdk/process-runtime";
 import type { ExecFn } from "./tmux.js";
-import { assertSafeSessionId, assertSafeTmuxSession } from "./tmux.js";
+import { assertSafeSessionId, assertSafeTmuxSession, tmuxSessionExists } from "./tmux.js";
 import type { ClaudePermissionMode } from "./config.js";
 import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
@@ -111,11 +111,6 @@ export async function restoreSession({
     await fs.rm(stateFile, { force: true });
     await fs.rm(`${stateFile}.watchdog`, { force: true });
 
-    const permissionArgs =
-      permissionMode === "bypassPermissions"
-        ? " --permission-mode bypassPermissions"
-        : "";
-
     await exec(
       [
         "tmux",
@@ -125,10 +120,24 @@ export async function restoreSession({
         tmuxSession,
         "-c",
         workdir,
-        `claude --resume '${sessionId}'${permissionArgs} 2>&1 | tee '${logFile}'`,
+        `claude --resume '${sessionId}' --permission-mode ${permissionMode} 2>&1 | tee '${logFile}'`,
       ],
       { timeoutMs: 10000 },
     );
+
+    // Confirm the resumed session actually came up in tmux.
+    if (!(await tmuxSessionExists(tmuxSession, exec))) {
+      return {
+        success: false,
+        sessionId,
+        tmuxSession,
+        budgetMinutes,
+        workdir,
+        logFile,
+        stateFile,
+        error: `tmux session ${tmuxSession} did not start`,
+      };
+    }
 
     const stateLine = `RUNNING ${Date.now() / 1000 | 0} budget=${budgetMinutes}min workdir=${workdir} resumed_from=${sessionId}\n`;
     await writeState(stateFile, stateLine);

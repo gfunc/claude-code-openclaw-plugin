@@ -14,7 +14,13 @@ export const ClaudeCodeState = z.enum([
 
 export type ClaudeCodeState = z.infer<typeof ClaudeCodeState>;
 
-export const ClaudePermissionMode = z.enum(["bypassPermissions", "default"]);
+// Mirrors Claude Code's CLI `--permission-mode` values.
+export const ClaudePermissionMode = z.enum([
+  "default",
+  "acceptEdits",
+  "plan",
+  "bypassPermissions",
+]);
 export type ClaudePermissionMode = z.infer<typeof ClaudePermissionMode>;
 
 export const pluginConfigSchema = z.object({

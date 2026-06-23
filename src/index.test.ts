@@ -103,6 +103,12 @@ describe("claude-code-openclaw-plugin", () => {
     expect(tools.map((t) => t.name)).toContain("claude_code_send");
   });
 
+  it("registers a claude_code_read tool", () => {
+    const { api, tools } = createMockApi();
+    entry.register!(api as never);
+    expect(tools.map((t) => t.name)).toContain("claude_code_read");
+  });
+
   it("does not register a heartbeat_prompt_contribution hook (not a real hook event)", () => {
     const { api, hooks } = createMockApi();
     entry.register!(api as never);

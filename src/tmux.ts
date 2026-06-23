@@ -71,3 +71,76 @@ export async function tmuxSessionExists(
   const result = await exec(["tmux", "has-session", "-t", tmuxSession], { timeoutMs: 2000 });
   return result.code === 0;
 }
+
+// tmux named keys safe to forward for menu navigation. Anything outside this set
+// (or a single digit) is rejected so callers cannot smuggle arbitrary key specs.
+const ALLOWED_KEY_NAMES = new Set([
+  "Up",
+  "Down",
+  "Left",
+  "Right",
+  "Enter",
+  "Escape",
+  "Tab",
+  "BTab",
+  "Space",
+  "Home",
+  "End",
+  "PageUp",
+  "PageDown",
+  "BSpace",
+  "Delete",
+]);
+
+export function assertSafeKeys(keys: string[]): void {
+  for (const key of keys) {
+    if (!ALLOWED_KEY_NAMES.has(key) && !/^[0-9]$/.test(key)) {
+      throw new Error(`unsupported tmux key: ${key}`);
+    }
+  }
+}
+
+// Sends named keys (arrows, Enter, Escape, digits, ...) WITHOUT `-l` so tmux
+// interprets them as keypresses. Used to drive arrow-highlight menus that don't
+// accept typed answers.
+export async function sendKeysSequence({
+  tmuxSession,
+  keys,
+  exec = runCommandWithTimeout,
+}: {
+  tmuxSession: string;
+  keys: string[];
+  exec?: ExecFn;
+}): Promise<void> {
+  if (keys.length === 0) return;
+  assertSafeKeys(keys);
+  const result = await exec(
+    ["tmux", "send-keys", "-t", tmuxSession, ...keys],
+    { timeoutMs: 5000 },
+  );
+  if (result.code !== 0) {
+    throw new Error(`tmux send-keys failed: ${result.stderr}`);
+  }
+}
+
+// Captures the current pane contents. `lines` extends capture into scrollback so
+// the caller can read more than the visible viewport.
+export async function capturePane({
+  tmuxSession,
+  lines,
+  exec = runCommandWithTimeout,
+}: {
+  tmuxSession: string;
+  lines?: number;
+  exec?: ExecFn;
+}): Promise<string> {
+  const argv = ["tmux", "capture-pane", "-t", tmuxSession, "-p"];
+  if (typeof lines === "number" && lines > 0) {
+    argv.push("-S", `-${Math.floor(lines)}`);
+  }
+  const result = await exec(argv, { timeoutMs: 5000 });
+  if (result.code !== 0) {
+    throw new Error(`tmux capture-pane failed: ${result.stderr}`);
+  }
+  return result.stdout ?? "";
+}

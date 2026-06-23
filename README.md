@@ -24,7 +24,8 @@ No bash wrappers, no manual `tmux` invocations, no JSONL tailing, no external st
 |------|--------------|
 | `claude_code_spawn` | Start an interactive Claude Code session in a new tmux pane, with task, budget, and workdir. |
 | `claude_code_status` | List tracked sessions; optional `state` filter. |
-| `claude_code_send` | Type text into a running session (answer a question, approve, or tell it to continue); submits by default. |
+| `claude_code_read` | Read the live tmux pane (current prompt, menu options, or result) before acting. |
+| `claude_code_send` | Type an answer (`text`) or drive a menu with special keys (`keys`, e.g. `["Down","Enter"]`); submits by default. |
 | `claude_code_stop` | Kill a session's tmux pane. |
 | `claude_code_restore` | Spawn a new tmux pane that `--resume`s a previous session by id. |
 | `claude_code_setup_hooks` | Write hook config into a target repo's `.claude/settings.local.json` (or `.settings.json` with `shared=true`). |
@@ -37,6 +38,7 @@ No bash wrappers, no manual `tmux` invocations, no JSONL tailing, no external st
 | `POST /claude-code/spawn` | Programmatic spawn (same as `claude_code_spawn` tool). |
 | `POST /claude-code/setup-hooks` | Programmatic setup (same as `claude_code_setup_hooks` tool). |
 | `/{routePrefix}/<tmux>/send` | Send keys to a tmux session (rate-limited). |
+| `/{routePrefix}/<tmux>/read` | Capture the current tmux pane contents. |
 | `/{routePrefix}/<session>/stop` | Stop by session id. |
 | `/{routePrefix}/<session>/restore` | Restore by session id. |
 
@@ -94,7 +96,7 @@ How it works:
    }
    ```
    `targetSessionKey` is the session that will receive system-event notifications and heartbeat wakes. The default is `agent:main:main`; set it to a dedicated watcher agent (for example `agent:cc-watcher:main`) if you want a separate session to monitor Claude Code state.
-  `permissionMode` controls how Claude Code handles permission prompts when spawning or restoring sessions. Default is `bypassPermissions` (current behavior). Set `"permissionMode": "default"` if you want Claude Code to enforce normal permission prompts.
+`permissionMode` controls how Claude Code handles permission prompts when spawning or restoring sessions. It maps directly to Claude Code's `--permission-mode` flag and accepts `default` (normal prompts), `acceptEdits` (auto-accept file edits), `plan` (plan mode, no changes), or `bypassPermissions` (no prompts). Default is `bypassPermissions` (preserves prior behavior).
 
 2. **Install hooks in the repo you want to monitor.** From any OpenClaw agent session, run:
    ```text
@@ -132,7 +134,7 @@ All fields optional; defaults shown.
 | `stateFileDir` | `~/.cache/claude-code-hooks` | Where per-session state JSON lives. |
 | `notifyStates` | `[WAITING, QUESTION, PERMISSION, ERROR, DONE]` | States that trigger a system event push. |
 | `targetSessionKey` | `agent:main:main` | Which session receives the enqueued system events. |
-| `permissionMode` | `bypassPermissions` | Permission handling for spawn/restore: `bypassPermissions` (no prompts) or `default` (normal prompts). |
+| `permissionMode` | `bypassPermissions` | Claude Code `--permission-mode` for spawn/restore: `default`, `acceptEdits`, `plan`, or `bypassPermissions`. |
 | `sendKeysRateLimitPerMinute` | `10` | Per-session rate limit for `/send`. |
 | `sessionTimeoutSeconds` | `300` | Idle threshold for FATAL. |
 | `eventTypes` | `["*"]` | Hook event filter. |

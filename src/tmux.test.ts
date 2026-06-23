@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { sendKeysToTmuxSession, tmuxSessionExists } from "./tmux.js";
+import {
+  capturePane,
+  sendKeysSequence,
+  sendKeysToTmuxSession,
+  tmuxSessionExists,
+} from "./tmux.js";
 
 describe("sendKeysToTmuxSession", () => {
   it("runs tmux send-keys with literal text", async () => {
@@ -54,5 +59,45 @@ describe("tmuxSessionExists", () => {
     const exec = vi.fn().mockResolvedValue({ stdout: "", stderr: "", code: 1 });
     const exists = await tmuxSessionExists("missing", exec);
     expect(exists).toBe(false);
+  });
+});
+
+describe("sendKeysSequence", () => {
+  it("sends named keys without -l", async () => {
+    const exec = vi.fn().mockResolvedValue({ stdout: "", stderr: "", code: 0 });
+    await sendKeysSequence({ tmuxSession: "cc-test", keys: ["Down", "Down", "Enter"], exec });
+    expect(exec).toHaveBeenCalledWith(
+      ["tmux", "send-keys", "-t", "cc-test", "Down", "Down", "Enter"],
+      { timeoutMs: 5000 },
+    );
+  });
+
+  it("rejects unsupported keys before running tmux", async () => {
+    const exec = vi.fn();
+    await expect(
+      sendKeysSequence({ tmuxSession: "cc-test", keys: ["Down", "rm -rf ~"], exec }),
+    ).rejects.toThrow("unsupported tmux key");
+    expect(exec).not.toHaveBeenCalled();
+  });
+});
+
+describe("capturePane", () => {
+  it("captures the visible pane", async () => {
+    const exec = vi.fn().mockResolvedValue({ stdout: "hello", stderr: "", code: 0 });
+    const out = await capturePane({ tmuxSession: "cc-test", exec });
+    expect(out).toBe("hello");
+    expect(exec).toHaveBeenCalledWith(
+      ["tmux", "capture-pane", "-t", "cc-test", "-p"],
+      { timeoutMs: 5000 },
+    );
+  });
+
+  it("extends into scrollback when lines is given", async () => {
+    const exec = vi.fn().mockResolvedValue({ stdout: "", stderr: "", code: 0 });
+    await capturePane({ tmuxSession: "cc-test", lines: 50, exec });
+    expect(exec).toHaveBeenCalledWith(
+      ["tmux", "capture-pane", "-t", "cc-test", "-p", "-S", "-50"],
+      { timeoutMs: 5000 },
+    );
   });
 });

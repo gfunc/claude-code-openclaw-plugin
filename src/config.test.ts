@@ -34,4 +34,14 @@ describe("resolvePluginConfig", () => {
     const cfg = resolvePluginConfig({ permissionMode: "default" });
     expect(cfg.permissionMode).toBe("default");
   });
+
+  it("accepts every Claude Code permission mode", () => {
+    for (const mode of ["default", "acceptEdits", "plan", "bypassPermissions"] as const) {
+      expect(resolvePluginConfig({ permissionMode: mode }).permissionMode).toBe(mode);
+    }
+  });
+
+  it("rejects an unknown permissionMode", () => {
+    expect(() => resolvePluginConfig({ permissionMode: "yolo" })).toThrow();
+  });
 });

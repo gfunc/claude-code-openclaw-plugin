@@ -10,13 +10,14 @@ import { resolvePluginConfig } from "./config.js";
 import { discoverSession } from "./discovery.js";
 import { createClaudeCodeRoutes } from "./routes.js";
 import { createSessionStore } from "./store.js";
-import { sendKeysToTmuxSession, tmuxSessionExists } from "./tmux.js";
+import { sendKeysSequence, sendKeysToTmuxSession, tmuxSessionExists } from "./tmux.js";
 import { createClaudeCodeStatusTool } from "./tools.js";
 
 import { createClaudeCodeSpawnTool } from "./spawn.js";
 import { createClaudeCodeStopTool } from "./stop.js";
 import { createClaudeCodeRestoreTool } from "./restore.js";
 import { createClaudeCodeSendTool } from "./send.js";
+import { createClaudeCodeReadTool } from "./read.js";
 import { createClaudeCodeSetupHooksTool } from "./setup-hooks.js";
 import { createBehaviorDispatcher } from "./dispatcher.js";
 
@@ -41,7 +42,7 @@ const pluginConfigJsonSchema = {
     targetSessionKey: { type: "string", default: "agent:main:main" },
     permissionMode: {
       type: "string",
-      enum: ["bypassPermissions", "default"],
+      enum: ["default", "acceptEdits", "plan", "bypassPermissions"],
       default: "bypassPermissions",
     },
   },
@@ -85,10 +86,11 @@ const plugin: OpenClawPluginDefinition = definePluginEntry({
       config,
       dispatcher,
       discoverSession: async (sessionId) => discoverSession({ sessionId }),
-      sendKeys: async ({ tmuxSession, text, submit }) => {
+      sendKeys: async ({ tmuxSession, text, submit, keys }) => {
         const exists = await tmuxSessionExists(tmuxSession);
         if (!exists) throw new Error(`tmux session ${tmuxSession} not found`);
-        await sendKeysToTmuxSession({ tmuxSession, text, submit });
+        if (text) await sendKeysToTmuxSession({ tmuxSession, text, submit });
+        if (keys && keys.length) await sendKeysSequence({ tmuxSession, keys });
       },
     });
 
@@ -125,6 +127,7 @@ const plugin: OpenClawPluginDefinition = definePluginEntry({
     api.registerTool(createClaudeCodeStopTool());
     api.registerTool(createClaudeCodeRestoreTool({ permissionMode: config.permissionMode }));
     api.registerTool(createClaudeCodeSendTool());
+    api.registerTool(createClaudeCodeReadTool());
     api.registerTool(createClaudeCodeSetupHooksTool());
 
     let timeoutTimer: NodeJS.Timeout | undefined;

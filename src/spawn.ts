@@ -3,7 +3,7 @@ import type { AnyAgentTool } from "openclaw/plugin-sdk/plugin-entry";
 import { jsonResult } from "openclaw/plugin-sdk/core";
 import { runCommandWithTimeout } from "openclaw/plugin-sdk/process-runtime";
 import type { ExecFn } from "./tmux.js";
-import { assertSafeSessionId, assertSafeTmuxSession } from "./tmux.js";
+import { assertSafeSessionId, assertSafeTmuxSession, tmuxSessionExists } from "./tmux.js";
 import type { ClaudePermissionMode } from "./config.js";
 import crypto from "node:crypto";
 import { spawn } from "node:child_process";
@@ -121,11 +121,6 @@ export async function spawnSession({
     await fs.rm(stateFile, { force: true });
     await fs.rm(`${stateFile}.watchdog`, { force: true });
 
-    const permissionArgs =
-      permissionMode === "bypassPermissions"
-        ? " --permission-mode bypassPermissions"
-        : "";
-
     await exec(
       [
         "tmux",
@@ -135,10 +130,24 @@ export async function spawnSession({
         tmuxSession,
         "-c",
         workdir,
-        `claude --session-id '${sessionId}'${permissionArgs}`,
+        `claude --session-id '${sessionId}' --permission-mode ${permissionMode}`,
       ],
       { timeoutMs: 10000 },
     );
+
+    // Confirm Claude Code actually launched in tmux before driving the pane.
+    if (!(await tmuxSessionExists(tmuxSession, exec))) {
+      return {
+        success: false,
+        tmuxSession,
+        sessionId,
+        budgetMinutes,
+        workdir,
+        logFile,
+        stateFile,
+        error: `tmux session ${tmuxSession} did not start`,
+      };
+    }
 
     await exec(["tmux", "pipe-pane", "-t", tmuxSession, "-o", `cat >> '${logFile}'`], { timeoutMs: 5000 });
 

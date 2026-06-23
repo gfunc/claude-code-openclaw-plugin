@@ -7,6 +7,7 @@ import { handleSpawnRoute } from "./spawn.js";
 import { stopSession } from "./stop.js";
 import { restoreSession } from "./restore.js";
 import { handleSetupHooksRoute } from "./setup-hooks.js";
+import { readSession } from "./read.js";
 import type { BehaviorDispatcher } from "./dispatcher.js";
 
 const MAX_BODY_BYTES = 1024 * 1024;
@@ -38,6 +39,7 @@ export type SendKeysFn = (params: {
   tmuxSession: string;
   text: string;
   submit: boolean;
+  keys?: string[];
 }) => Promise<void>;
 
 export function createClaudeCodeRoutes({
@@ -107,7 +109,14 @@ export function createClaudeCodeRoutes({
       }
       const text = String(body.text ?? "");
       const submit = Boolean(body.submit);
-      await sendKeys?.({ tmuxSession, text, submit });
+      const keys = Array.isArray(body.keys)
+        ? body.keys.filter((k: unknown): k is string => typeof k === "string")
+        : undefined;
+      if (!text && (!keys || keys.length === 0)) {
+        sendJson(res, 400, { error: "text or keys is required" });
+        return;
+      }
+      await sendKeys?.({ tmuxSession, text, submit, keys });
       lastSendAt.set(tmuxSession, Date.now());
       sendJson(res, 200, { sent: true, sessionId: tracked.sessionId });
     } catch (err) {
@@ -149,6 +158,20 @@ export function createClaudeCodeRoutes({
     const sendMatch = suffix.match(/^\/([^/]+)\/send$/);
     if (sendMatch) {
       await send(req, res, sendMatch[1]);
+      return;
+    }
+
+    const readMatch = suffix.match(/^\/([^/]+)\/read$/);
+    if (readMatch) {
+      try {
+        const raw = (await readBody(req)).toString("utf8");
+        const body = raw ? JSON.parse(raw) : {};
+        const lines = typeof body?.lines === "number" ? body.lines : undefined;
+        const result = await readSession({ tmuxSession: readMatch[1], lines });
+        sendJson(res, result.success ? 200 : 404, result);
+      } catch (err) {
+        sendJson(res, 500, { error: String(err) });
+      }
       return;
     }
 
