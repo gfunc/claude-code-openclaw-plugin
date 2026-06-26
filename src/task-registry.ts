@@ -38,6 +38,7 @@ export type TaskRegistryDeps = {
     reason: string;
     sessionKey: string;
     agentId?: string;
+    heartbeat?: { isolatedSession?: boolean };
   }) => void;
   requesterSessionKey: string;
   log?: (text: string) => void;
@@ -68,6 +69,11 @@ export function createTaskRegistry(deps: TaskRegistryDeps): TaskRegistry {
       reason,
       sessionKey: requesterSessionKey,
       agentId,
+      // isolatedSession: true makes the heartbeat runner use a separate
+      // session (agent:main:main:heartbeat) with its own main queue,
+      // bypassing the congestion from user messages on agent:main:main.
+      // This is the same mechanism cron tasks use to deliver reliably.
+      heartbeat: { isolatedSession: true },
     });
   }
 
