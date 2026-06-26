@@ -97,7 +97,7 @@ describe("hook → system-event queue (full integration)", () => {
     if (stateDir) await fs.rm(stateDir, { recursive: true, force: true }).catch(() => {});
   });
 
-  it("Stop hook enqueues a cron:claude-code:* event into the real queue", async () => {
+  it("Stop hook enqueues a task:claude-code:* event into the real queue", async () => {
     stateDir = await fs.mkdtemp(path.join(os.tmpdir(), "cc-plugin-e2e-"));
     const { api, routes } = buildApi({ stateDir });
 
@@ -113,7 +113,7 @@ describe("hook → system-event queue (full integration)", () => {
 
     const entries = peekSystemEventEntries("agent:main:main");
     expect(entries).toHaveLength(1);
-    expect(entries[0].contextKey).toBe("cron:claude-code:e2e-real-1");
+    expect(entries[0].contextKey).toBe("task:claude-code:e2e-real-1");
     expect(entries[0].text).toContain("needs attention");
   });
 
@@ -134,7 +134,7 @@ describe("hook → system-event queue (full integration)", () => {
 
     const entries = peekSystemEventEntries("agent:main:main");
     expect(entries).toHaveLength(1);
-    expect(entries[0].contextKey).toBe("cron:claude-code:e2e-real-2");
+    expect(entries[0].contextKey).toBe("task:claude-code:e2e-real-2");
     expect(entries[0].text).toContain("finished");
     expect(entries[0].text).toContain("parity report done");
   });
@@ -208,7 +208,7 @@ describe("hook → system-event queue (full integration)", () => {
     await post({ hook_event_name: "Stop", session_id: sid });
     let entries = peekSystemEventEntries("agent:main:main");
     expect(entries).toHaveLength(1);
-    expect(entries[0].contextKey).toBe(`cron:claude-code:${sid}`);
+    expect(entries[0].contextKey).toBe(`task:claude-code:${sid}`);
     expect(entries[0].text).toContain("needs attention");
     expect(heartbeats).toHaveLength(0); // intermediate states don't wake
 
@@ -220,7 +220,7 @@ describe("hook → system-event queue (full integration)", () => {
     });
     entries = peekSystemEventEntries("agent:main:main");
     const doneEntry = entries.find(
-      (e) => e.contextKey === `cron:claude-code:${sid}` && e.text.includes("finished"),
+      (e) => e.contextKey === `task:claude-code:${sid}` && e.text.includes("finished"),
     );
     expect(doneEntry).toBeDefined();
     if (doneEntry) expect(doneEntry.text).toContain("all done");

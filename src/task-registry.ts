@@ -1,14 +1,19 @@
 // Notification bridge: hook events → requester session system events.
 //
-//   enqueueSystemEvent(text, { contextKey: "cron:claude-code:<id>" })
+//   enqueueSystemEvent(text, { contextKey: "task:claude-code:<id>" })
 //   requestHeartbeatNow({ source: "hook", intent: "immediate" })
 //
-// contextKey MUST use "cron:" prefix (not "task:") — the OpenClaw heartbeat
-// runner's resolveHeartbeatRunPrompt only generates a user-visible prompt for
-// system events when either (a) the event matches the exec-completion pattern,
-// (b) the contextKey starts with "cron:", or (c) a heartbeat file has tasks.
-// Without one of these, the runner returns prompt=null → "skipped: no-tasks-due"
-// and the events sit in the queue forever without being surfaced.
+// contextKey MUST use "task:" prefix (NOT "cron:") — with "cron:" the
+// heartbeat runner's hasTaggedCronEvents becomes true, which forces
+// shouldInspectPendingEvents=true for ALL heartbeats (interval + wake).
+// Interval heartbeats then silently consume the events without generating
+// a user-visible prompt, deleting them before the wake can process them.
+//
+// With "task:": hasTaggedCronEvents=false, so interval heartbeats leave
+// the events alone.  Wake heartbeats (isWakePayload=true) also don't
+// consume them (guarded by !isWakePayload check).  The events survive
+// in the queue and appear as System: lines via drainFormattedSystemEvents
+// in the user's next conversation turn.
 //
 // source MUST be "hook" (not "background-task") — the runner only treats
 // source="hook"/"acp-spawn" or reason="wake" as a wake payload
@@ -59,7 +64,7 @@ export function createTaskRegistry(deps: TaskRegistryDeps): TaskRegistry {
 
     onStateTransition(state) {
       const label = state.tmuxSession ?? state.sessionId;
-      const contextKey = `cron:claude-code:${state.sessionId}`;
+      const contextKey = `task:claude-code:${state.sessionId}`;
       const reason = `claude-code:${state.sessionId}:${state.state}`;
       log?.(`claude-code: notify state=${state.state} sessionId=${state.sessionId} contextKey=${contextKey}`);
 
