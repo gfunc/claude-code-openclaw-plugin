@@ -1,6 +1,20 @@
-import { resolveBehavior } from "./behavior.js";
 import type { ClaudeCodeState } from "./config.js";
 import type { SessionState } from "./state.js";
+
+// Display labels for each state — used in claude_code_status context output.
+// No longer tied to a dispatcher/announce system.
+const STATE_LABELS: Record<
+  ClaudeCodeState,
+  { prompt: boolean; prefix: string; message: string }
+> = {
+  WORKING: { prompt: false, prefix: "", message: "" },
+  WAITING: { prompt: true, prefix: "⚠️", message: "waiting for input" },
+  QUESTION: { prompt: true, prefix: "⚠️", message: "waiting for an answer" },
+  PERMISSION: { prompt: true, prefix: "⚠️", message: "waiting for permission" },
+  ERROR: { prompt: true, prefix: "🚨", message: "failed" },
+  DONE: { prompt: true, prefix: "ℹ️", message: "finished" },
+  FATAL: { prompt: true, prefix: "🚨", message: "timed out" },
+};
 
 const STATE_ORDER: Record<ClaudeCodeState, number> = {
   FATAL: 0,
@@ -12,6 +26,15 @@ const STATE_ORDER: Record<ClaudeCodeState, number> = {
   WORKING: 6,
 };
 
+function resolveDisplay(
+  state: ClaudeCodeState,
+  notifyStates: ClaudeCodeState[],
+): { prompt: boolean; prefix: string; message: string } {
+  const base = STATE_LABELS[state];
+  if (!notifyStates.includes(state)) return { prompt: false, prefix: "", message: "" };
+  return base;
+}
+
 export function buildClaudeCodeContext({
   sessions,
   notifyStates,
@@ -22,8 +45,8 @@ export function buildClaudeCodeContext({
   const allStates = Object.keys(STATE_ORDER) as ClaudeCodeState[];
   const relevant = sessions
     .filter((s) => {
-      const behavior = resolveBehavior(s.state, notifyStates ?? allStates);
-      return behavior.prompt;
+      const display = resolveDisplay(s.state, notifyStates ?? allStates);
+      return display.prompt;
     })
     .sort((a, b) => STATE_ORDER[a.state] - STATE_ORDER[b.state]);
 
@@ -31,9 +54,9 @@ export function buildClaudeCodeContext({
 
   const lines = ["## Active Claude Code sessions"];
   for (const s of relevant) {
-    const behavior = resolveBehavior(s.state, notifyStates ?? allStates);
+    const display = resolveDisplay(s.state, notifyStates ?? allStates);
     lines.push(
-      `- ${behavior.prefix} tmux: ${s.tmuxSession ?? "unknown"} | state: ${s.state} | ${behavior.message}`,
+      `- ${display.prefix} tmux: ${s.tmuxSession ?? "unknown"} | state: ${s.state} | ${display.message}`,
     );
     lines.push(`  since: ${new Date(s.stateSince).toISOString()}`);
     if (s.workdir) lines.push(`  workdir: ${s.workdir}`);

@@ -8,6 +8,7 @@ import type {
 } from "openclaw/plugin-sdk/plugin-entry";
 import { resolvePluginConfig } from "./config.js";
 import { discoverSession } from "./discovery.js";
+import { createSessionEventLogger } from "./event-log.js";
 import { createClaudeCodeRoutes } from "./routes.js";
 import { createSessionStore } from "./store.js";
 import { sendKeysSequence, sendKeysToTmuxSession, tmuxSessionExists } from "./tmux.js";
@@ -19,7 +20,7 @@ import { createClaudeCodeRestoreTool } from "./restore.js";
 import { createClaudeCodeSendTool } from "./send.js";
 import { createClaudeCodeReadTool } from "./read.js";
 import { createClaudeCodeSetupHooksTool } from "./setup-hooks.js";
-import { createBehaviorDispatcher } from "./dispatcher.js";
+import { createTaskRegistry } from "./task-registry.js";
 
 const pluginConfigJsonSchema = {
   type: "object",
@@ -45,6 +46,7 @@ const pluginConfigJsonSchema = {
       enum: ["default", "acceptEdits", "plan", "bypassPermissions"],
       default: "bypassPermissions",
     },
+    debugLog: { type: "boolean", default: false },
   },
   required: [],
 } as const;
@@ -57,34 +59,23 @@ const plugin: OpenClawPluginDefinition = definePluginEntry({
   register(api: OpenClawPluginApi) {
     const rawConfig = api.pluginConfig ?? {};
     const config = resolvePluginConfig(rawConfig);
-    const store = createSessionStore({ stateFileDir: config.stateFileDir });
+    const eventLogger = createSessionEventLogger({
+      dir: config.stateFileDir,
+      enabled: config.debugLog,
+    });
+    const store = createSessionStore({
+      stateFileDir: config.stateFileDir,
+      eventLogger,
+    });
 
-    const dispatcher = createBehaviorDispatcher({
-      enqueueSystemEvent: (text, opts) => {
-        try {
-          return api.runtime.system.enqueueSystemEvent(text, opts);
-        } catch (err) {
-          // eslint-disable-next-line no-console
-          console.error("claude-code: enqueueSystemEvent failed:", err);
-          return false;
-        }
-      },
-      requestHeartbeat: (opts) => {
-        try {
-          api.runtime.system.requestHeartbeatNow(opts);
-        } catch (err) {
-          // eslint-disable-next-line no-console
-          console.error("claude-code: requestHeartbeatNow failed:", err);
-        }
-      },
-      notifyStates: config.notifyStates,
-      sessionKey: config.targetSessionKey,
+    const taskReg = createTaskRegistry({
+      requesterSessionKey: config.targetSessionKey,
     });
 
     const routes = createClaudeCodeRoutes({
       store,
       config,
-      dispatcher,
+      taskRegistry: taskReg,
       discoverSession: async (sessionId) => discoverSession({ sessionId }),
       sendKeys: async ({ tmuxSession, text, submit, keys }) => {
         const exists = await tmuxSessionExists(tmuxSession);
@@ -123,7 +114,11 @@ const plugin: OpenClawPluginDefinition = definePluginEntry({
     });
 
     api.registerTool(createClaudeCodeStatusTool(store));
-    api.registerTool(createClaudeCodeSpawnTool({ permissionMode: config.permissionMode }));
+    api.registerTool(createClaudeCodeSpawnTool({
+      permissionMode: config.permissionMode,
+      taskRegistry: taskReg,
+      requesterSessionKey: config.targetSessionKey,
+    }));
     api.registerTool(createClaudeCodeStopTool());
     api.registerTool(createClaudeCodeRestoreTool({ permissionMode: config.permissionMode }));
     api.registerTool(createClaudeCodeSendTool());
@@ -138,17 +133,16 @@ const plugin: OpenClawPluginDefinition = definePluginEntry({
         const intervalMs = Math.min(config.sessionTimeoutSeconds * 1000, 60_000);
         timeoutTimer = setInterval(() => {
           const now = Date.now();
+          const timeoutMs = config.sessionTimeoutSeconds * 1000;
           for (const state of store.listStates()) {
-            // Terminal states are not "stalled"; don't flip a finished or
-            // already-fatal session to FATAL and fire a spurious 🚨 alert.
             if (state.state === "DONE" || state.state === "FATAL") continue;
-            if (now - state.lastSeenAt > config.sessionTimeoutSeconds * 1000) {
+            if (now - state.lastSeenAt > timeoutMs) {
               const updated = store.markFatal(
                 state.sessionId,
                 "no hook received within sessionTimeoutSeconds",
               );
               if (updated) {
-                dispatcher.onStateChanged(updated);
+                taskReg.onStateTransition(updated, "WORKING");
               }
             }
           }

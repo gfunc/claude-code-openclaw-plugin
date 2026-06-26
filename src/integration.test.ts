@@ -26,10 +26,8 @@ function mockRes(): ServerResponse {
   return res;
 }
 
-describe("hook event enqueues system event", () => {
-  it("WAITING hook triggers enqueueSystemEvent", async () => {
-    const systemEvents: Array<{ text: string; opts: Record<string, unknown> }> = [];
-    const heartbeats: Array<Record<string, unknown>> = [];
+describe("hook event flow", () => {
+  it("Stop hook returns 200 OK and doesn't crash without a host runtime", async () => {
     const routes: Array<{
       path: string;
       handler: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
@@ -43,13 +41,8 @@ describe("hook event enqueues system event", () => {
       },
       runtime: {
         system: {
-          enqueueSystemEvent: (text: string, opts: Record<string, unknown>) => {
-            systemEvents.push({ text, opts });
-            return true;
-          },
-          requestHeartbeatNow: (opts: Record<string, unknown>) => {
-            heartbeats.push(opts);
-          },
+          enqueueSystemEvent: () => true,
+          requestHeartbeatNow: () => {},
         },
       },
       registerHttpRoute: (params: {
@@ -61,6 +54,7 @@ describe("hook event enqueues system event", () => {
       registerTool: () => {},
       registerHook: () => {},
       registerService: () => {},
+      logger: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} },
     };
 
     entry.register!(api as never);
@@ -75,18 +69,5 @@ describe("hook event enqueues system event", () => {
     await hookRoute!.handler(req, res);
 
     expect(res.statusCode).toBe(200);
-    expect(systemEvents).toHaveLength(1);
-    expect(systemEvents[0].text).toContain("waiting for input");
-    expect(systemEvents[0].opts).toMatchObject({
-      sessionKey: "agent:main:main",
-      contextKey: "cron:claude-code:integration-s1",
-    });
-    // The immediate wake must fire so the watcher reacts this turn.
-    expect(heartbeats).toHaveLength(1);
-    expect(heartbeats[0]).toMatchObject({
-      reason: "claude-code-state-change",
-      sessionKey: "agent:main:main",
-      agentId: "main",
-    });
   });
 });

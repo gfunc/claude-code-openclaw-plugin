@@ -42,6 +42,9 @@ export type SessionState = {
   budgetMinutes?: number;
   budgetDeadline?: number;
   fatalReason?: string;
+  // task-registry fields
+  runId?: string;
+  requesterSessionKey?: string;
   history: Array<{
     ts: number;
     state: ClaudeCodeState;

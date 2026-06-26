@@ -5,6 +5,7 @@ import { runCommandWithTimeout } from "openclaw/plugin-sdk/process-runtime";
 import type { ExecFn } from "./tmux.js";
 import { assertSafeSessionId, assertSafeTmuxSession, tmuxSessionExists } from "./tmux.js";
 import type { ClaudePermissionMode } from "./config.js";
+import type { TaskRegistry } from "./task-registry.js";
 import crypto from "node:crypto";
 import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
@@ -18,6 +19,8 @@ export type SpawnDeps = {
   startWatchdog?: (statePath: string, sessionId: string, tmuxSession: string, budgetMinutes: number) => Promise<void>;
   uuid?: () => string;
   sleepMs?: number;
+  taskRegistry?: TaskRegistry;
+  requesterSessionKey?: string;
 };
 
 const DEFAULT_TASKS_DIR = path.join(os.homedir(), ".cache", "claude-tasks");
@@ -90,6 +93,8 @@ export async function spawnSession({
   startWatchdog = defaultStartWatchdog,
   uuid = defaultUuid,
   sleepMs = 5000,
+  taskRegistry,
+  requesterSessionKey,
 }: {
   tmuxSession: string;
   task: string;
@@ -100,6 +105,7 @@ export async function spawnSession({
   success: boolean;
   tmuxSession: string;
   sessionId: string;
+  runId: string;
   budgetMinutes: number;
   workdir: string;
   logFile: string;
@@ -141,6 +147,7 @@ export async function spawnSession({
         success: false,
         tmuxSession,
         sessionId,
+        runId: sessionId,
         budgetMinutes,
         workdir,
         logFile,
@@ -181,12 +188,23 @@ export async function spawnSession({
     const stateLine = `RUNNING ${Date.now() / 1000 | 0} budget=${budgetMinutes}min workdir=${workdir} session_id=${sessionId}\n`;
     await writeState(stateFile, stateLine);
 
+    // Register as a background task so the requester session gets
+    // notified on state changes (WAITING, DONE, etc.).
+    if (taskRegistry && requesterSessionKey) {
+      taskRegistry.createTask({
+        runId: sessionId,
+        task,
+        label: tmuxSession,
+      });
+    }
+
     await startWatchdog(stateFile, sessionId, tmuxSession, budgetMinutes);
 
     return {
       success: true,
       tmuxSession,
       sessionId,
+      runId: sessionId,
       budgetMinutes,
       workdir,
       logFile,
@@ -197,6 +215,7 @@ export async function spawnSession({
       success: false,
       tmuxSession,
       sessionId,
+      runId: sessionId,
       budgetMinutes,
       workdir,
       logFile,
@@ -208,6 +227,8 @@ export async function spawnSession({
 
 export function createClaudeCodeSpawnTool(config?: {
   permissionMode?: ClaudePermissionMode;
+  taskRegistry?: TaskRegistry;
+  requesterSessionKey?: string;
 }): AnyAgentTool {
   return {
     label: "Claude Code Spawn",
@@ -233,6 +254,8 @@ export function createClaudeCodeSpawnTool(config?: {
         budgetMinutes,
         permissionMode: config?.permissionMode,
         workdir,
+        taskRegistry: config?.taskRegistry,
+        requesterSessionKey: config?.requesterSessionKey,
       });
       return jsonResult(result);
     },
@@ -241,7 +264,11 @@ export function createClaudeCodeSpawnTool(config?: {
 
 export async function handleSpawnRoute(
   body: unknown,
-  config?: { permissionMode?: ClaudePermissionMode },
+  config?: {
+    permissionMode?: ClaudePermissionMode;
+    taskRegistry?: TaskRegistry;
+    requesterSessionKey?: string;
+  },
 ): Promise<{ status: number; body: unknown }> {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     return { status: 400, body: { error: "invalid body" } };
@@ -256,6 +283,8 @@ export async function handleSpawnRoute(
     budgetMinutes: typeof budgetMinutes === "number" ? budgetMinutes : undefined,
     permissionMode: config?.permissionMode,
     workdir: typeof workdir === "string" ? workdir : undefined,
+    taskRegistry: config?.taskRegistry,
+    requesterSessionKey: config?.requesterSessionKey,
   });
   return { status: result.success ? 200 : 500, body: result };
 }

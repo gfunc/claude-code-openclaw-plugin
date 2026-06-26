@@ -5,7 +5,7 @@ import { createSessionStore } from "./store.js";
 import { createClaudeCodeRoutes } from "./routes.js";
 import type { PluginConfig } from "./config.js";
 import type { SessionState } from "./state.js";
-import type { BehaviorDispatcher } from "./dispatcher.js";
+import type { TaskRegistry } from "./task-registry.js";
 
 function mockReq({
   method,
@@ -44,7 +44,7 @@ function mockRes(): ServerResponse {
 describe("createClaudeCodeRoutes", () => {
   let store: ReturnType<typeof createSessionStore>;
   let routes: ReturnType<typeof createClaudeCodeRoutes>;
-  let dispatcher: BehaviorDispatcher;
+  let taskRegistry: TaskRegistry;
   let sendKeys: ReturnType<typeof vi.fn>;
   const config: PluginConfig = {
     routePrefix: "/claude-code",
@@ -55,19 +55,20 @@ describe("createClaudeCodeRoutes", () => {
     targetSessionKey: "agent:main:main",
     permissionMode: "bypassPermissions",
     stateFileDir: "/tmp/routes-test",
+    debugLog: false,
   };
 
   beforeEach(() => {
     store = createSessionStore({ stateFileDir: "/tmp/routes-test" });
-    dispatcher = {
-      onStateChanged: vi.fn(),
-      getPendingAnnounceSessionIds: vi.fn(() => []),
-    } as unknown as BehaviorDispatcher;
+    taskRegistry = {
+      createTask: vi.fn(),
+      onStateTransition: vi.fn(),
+    } as unknown as TaskRegistry;
     sendKeys = vi.fn();
     routes = createClaudeCodeRoutes({
       store,
       config,
-      dispatcher,
+      taskRegistry,
       sendKeys,
     });
   });
@@ -89,7 +90,7 @@ describe("createClaudeCodeRoutes", () => {
     expect(body).toEqual({ ok: true });
   });
 
-  it("delegates state change to dispatcher", async () => {
+  it("delegates state change to taskRegistry", async () => {
     const req = mockReq({
       method: "POST",
       path: "/claude-code/hook",
@@ -97,10 +98,13 @@ describe("createClaudeCodeRoutes", () => {
     });
     const res = mockRes();
     await routes.hook(req, res);
-    expect(dispatcher.onStateChanged).toHaveBeenCalled();
-    const callArg = (dispatcher.onStateChanged as ReturnType<typeof vi.fn>).mock
-      .calls[0]?.[0] as SessionState;
-    expect(callArg.state).toBe("WAITING");
+    expect(taskRegistry.onStateTransition).toHaveBeenCalled();
+    const callArgs = (taskRegistry.onStateTransition as ReturnType<typeof vi.fn>).mock
+      .calls[0];
+    const stateArg = callArgs?.[0] as SessionState;
+    const prevStateArg = callArgs?.[1] as string;
+    expect(stateArg.state).toBe("WAITING");
+    expect(prevStateArg).toBe("");
   });
 
   it("returns 404 for unknown tmux session on send", async () => {

@@ -8,7 +8,7 @@ import { stopSession } from "./stop.js";
 import { restoreSession } from "./restore.js";
 import { handleSetupHooksRoute } from "./setup-hooks.js";
 import { readSession } from "./read.js";
-import type { BehaviorDispatcher } from "./dispatcher.js";
+import type { TaskRegistry } from "./task-registry.js";
 
 const MAX_BODY_BYTES = 1024 * 1024;
 
@@ -45,13 +45,13 @@ export type SendKeysFn = (params: {
 export function createClaudeCodeRoutes({
   store,
   config,
-  dispatcher,
+  taskRegistry,
   sendKeys,
   discoverSession,
 }: {
   store: SessionStore;
   config: PluginConfig;
-  dispatcher?: BehaviorDispatcher;
+  taskRegistry?: TaskRegistry;
   sendKeys?: SendKeysFn;
   discoverSession?: (sessionId: string) => Promise<DiscoveredSession | undefined>;
 }) {
@@ -61,12 +61,23 @@ export function createClaudeCodeRoutes({
     try {
       const body = JSON.parse((await readBody(req)).toString("utf8"));
       const payload = parseHookPayload(body);
+      const prevState = store.getState(payload.session_id);
       const state = await store.applyHook(payload, async () => discoverSession?.(payload.session_id));
-      dispatcher?.onStateChanged(state);
+      // On first hook for a session, set requester context if not already set.
+      if (!prevState && state.runId === undefined) {
+        store.setRequesterContext(
+          payload.session_id,
+          payload.session_id,          // runId = sessionId
+          config.targetSessionKey,     // from PluginConfig
+        );
+      }
+      // Notify via task-registry on state transition.
+      if (taskRegistry) {
+        await taskRegistry.onStateTransition(state, prevState?.state ?? "");
+      }
       sendJson(res, 200, { ok: true });
     } catch (err) {
       // Claude Code must not be blocked by hook failures; always return 200
-      // eslint-disable-next-line no-console
       console.error("claude-code hook failed:", err);
       sendJson(res, 200, { ok: false, error: String(err) });
     }

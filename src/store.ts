@@ -2,11 +2,13 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { PluginConfig } from "./config.js";
 import type { DiscoveredSession } from "./discovery.js";
+import { formatHookLogLine, type SessionEventLogger } from "./event-log.js";
 import type { ClaudeCodeHookPayload, SessionState } from "./state.js";
 import { applyHook as applyHookState, buildInitialState } from "./state.js";
 
 export type SessionStoreOptions = Pick<PluginConfig, "stateFileDir"> & {
   flushDebounceMs?: number;
+  eventLogger?: SessionEventLogger;
 };
 
 export type SessionStore = ReturnType<typeof createSessionStore>;
@@ -14,6 +16,7 @@ export type SessionStore = ReturnType<typeof createSessionStore>;
 export function createSessionStore(options: SessionStoreOptions) {
   const stateDir = options.stateFileDir;
   const flushDebounceMs = options.flushDebounceMs ?? 250;
+  const eventLogger = options.eventLogger;
   const sessions = new Map<string, SessionState>();
   let flushTimer: ReturnType<typeof setTimeout> | undefined;
   let disposed = false;
@@ -47,7 +50,9 @@ export function createSessionStore(options: SessionStoreOptions) {
     payload: ClaudeCodeHookPayload,
     discover?: () => Promise<DiscoveredSession | undefined>,
   ): Promise<SessionState> {
-    let state = sessions.get(payload.session_id);
+    const prev = sessions.get(payload.session_id);
+    const prevState = prev?.state;
+    let state = prev;
     if (!state) {
       state = buildInitialState(payload);
       const found = discover ? await discover() : undefined;
@@ -64,6 +69,19 @@ export function createSessionStore(options: SessionStoreOptions) {
     } else {
       state = applyHookState(state, payload);
       sessions.set(payload.session_id, state);
+    }
+    if (eventLogger) {
+      const lastEvt = state.history[state.history.length - 1];
+      eventLogger.log(
+        payload.session_id,
+        formatHookLogLine({
+          ts: state.lastSeenAt,
+          event: state.lastHookEvent,
+          prevState,
+          newState: state.state,
+          tool: lastEvt?.tool,
+        }),
+      );
     }
     scheduleFlush();
     return state;
@@ -113,6 +131,19 @@ export function createSessionStore(options: SessionStoreOptions) {
     return sessions.get(sessionId);
   }
 
+  function setRequesterContext(
+    sessionId: string,
+    runId: string,
+    requesterSessionKey: string,
+  ): void {
+    const state = sessions.get(sessionId);
+    if (state) {
+      state.runId = runId;
+      state.requesterSessionKey = requesterSessionKey;
+      scheduleFlush();
+    }
+  }
+
   function listStates(): SessionState[] {
     return Array.from(sessions.values());
   }
@@ -130,5 +161,6 @@ export function createSessionStore(options: SessionStoreOptions) {
     listStates,
     loadFromDisk,
     dispose,
+    setRequesterContext,
   };
 }

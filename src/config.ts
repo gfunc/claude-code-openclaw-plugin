@@ -38,6 +38,9 @@ export const pluginConfigSchema = z.object({
   sessionTimeoutSeconds: z.number().int().positive().default(300),
   targetSessionKey: z.string().default("agent:main:main"),
   permissionMode: ClaudePermissionMode.default("bypassPermissions"),
+  // Append a line per received hook to <stateFileDir>/<sessionId>.log.
+  // Off by default; logs are not rotated.
+  debugLog: z.boolean().default(false),
 });
 
 export type PluginConfig = z.infer<typeof pluginConfigSchema>;

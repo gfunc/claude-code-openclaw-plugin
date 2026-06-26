@@ -10,22 +10,24 @@ export type SetupHooksConfig = {
 
 const HOOK_URL = "http://127.0.0.1:18789/claude-code/hook";
 
-// Hook events the plugin tracks. Kept in code (not an external template file)
-// so setup works regardless of where the plugin is installed from (npm,
-// node_modules, a clone in any directory, etc).
+// Hook events the plugin actually acts on. Kept minimal: each event below
+// either (a) drives a state the task-registry notifies on, or (b) refreshes
+// lastSeenAt to keep the session-timeout watchdog from declaring FATAL.
+//
+// Dropped from the older 12-event set because they're pure WORKING noise:
+//   PreToolUse        — duplicate of the adjacent PostToolUse
+//   FileChanged       — Edit/Write already fire PostToolUse
+//   CwdChanged        — cwd ships on every payload anyway (state.ts:107)
+//   ElicitationResult — next PostToolUse / UserPromptSubmit restores WORKING
 const HOOK_EVENTS = [
   "SessionStart",
   "SessionEnd",
   "UserPromptSubmit",
   "Stop",
-  "PreToolUse",
   "PostToolUse",
   "PostToolUseFailure",
   "PermissionRequest",
-  "FileChanged",
-  "CwdChanged",
   "Elicitation",
-  "ElicitationResult",
 ] as const;
 
 function buildHookSettings(): string {

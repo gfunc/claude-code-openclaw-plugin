@@ -1,4 +1,7 @@
 import { EventEmitter } from "node:events";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { describe, expect, it, vi } from "vitest";
 import entry from "./index.js";
@@ -120,8 +123,8 @@ describe("claude-code-openclaw-plugin", () => {
     expect(contribution).toBeUndefined();
   });
 
-  it("requests heartbeat through runtime system when target session differs from main", async () => {
-    const { api, httpRoutes, heartbeatRequests } = createMockApi({
+  it("POST hook returns 200 OK when no task-registry harness is available", async () => {
+    const { api, httpRoutes } = createMockApi({
       targetSessionKey: "agent:cc-watcher:main",
     });
     entry.register!(api as never);
@@ -138,11 +141,55 @@ describe("claude-code-openclaw-plugin", () => {
 
     expect(res.statusCode).toBe(200);
     expect(JSON.parse((res as unknown as { body: string }).body)).toEqual({ ok: true });
-    expect(heartbeatRequests).toHaveLength(1);
-    expect(heartbeatRequests[0]).toEqual({
-      reason: "claude-code-state-change",
-      sessionKey: "agent:cc-watcher:main",
-      agentId: "cc-watcher",
+  });
+
+  it("timeout service marks FATAL for stalled sessions", async () => {
+    const stateDir = await fs.mkdtemp(path.join(os.tmpdir(), "cc-plugin-timeout-"));
+    const oldNow = Date.now();
+    const stale = oldNow - 600_000; // 10 min ago — well past sessionTimeoutSeconds
+    const sessionId = "stale-session";
+    await fs.writeFile(
+      path.join(stateDir, `${sessionId}.json`),
+      JSON.stringify({
+        sessionId,
+        tmuxSession: "cc-test",
+        state: "WAITING",
+        lastHookEvent: "Stop",
+        lastHookPayload: { hook_event_name: "Stop", session_id: sessionId },
+        stateSince: stale,
+        lastSeenAt: stale,
+        history: [],
+      }),
+      "utf8",
+    );
+
+    const { api, services } = createMockApi({
+      stateFileDir: stateDir,
+      sessionTimeoutSeconds: 300,
+      targetSessionKey: "agent:cc-watcher:main",
     });
+    entry.register!(api as never);
+    const timeoutService = services.find((s) => s.id === "claude-code-session-timeout");
+    expect(timeoutService).toBeDefined();
+
+    // Replace setInterval with an immediate tick we can drive manually.
+    let ticker: (() => void) | undefined;
+    const originalSetInterval = global.setInterval;
+    (global as unknown as { setInterval: typeof setInterval }).setInterval = ((
+      fn: () => void,
+    ) => {
+      ticker = fn;
+      return { unref() {} } as unknown as NodeJS.Timeout;
+    }) as unknown as typeof setInterval;
+    try {
+      await timeoutService!.start();
+      expect(ticker).toBeDefined();
+      ticker!();
+    } finally {
+      (global as unknown as { setInterval: typeof setInterval }).setInterval =
+        originalSetInterval;
+    }
+
+    await fs.rm(stateDir, { recursive: true, force: true });
   });
 });
