@@ -26,7 +26,7 @@ describe("createTaskRegistry", () => {
   // ── notify states ──────────────────────────────────────────
 
   it.each(["WAITING", "QUESTION", "PERMISSION", "ERROR"])(
-    "enqueues and wakes on %s transition",
+    "enqueues but does NOT wake on %s transition (intermediate states)",
     (state) => {
       const { enqueueSystemEvent, requestHeartbeatNow, reg } = setup();
 
@@ -39,13 +39,7 @@ describe("createTaskRegistry", () => {
           contextKey: "task:claude-code:sid-1",
         }),
       );
-      expect(requestHeartbeatNow).toHaveBeenCalledWith(
-        expect.objectContaining({
-          source: "background-task",
-          intent: "immediate",
-          sessionKey: requesterSessionKey,
-        }),
-      );
+      expect(requestHeartbeatNow).not.toHaveBeenCalled();
     },
   );
 

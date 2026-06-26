@@ -139,7 +139,7 @@ describe("hook → system-event queue (full integration)", () => {
     expect(entries[0].text).toContain("parity report done");
   });
 
-  it("wake fires via requestHeartbeatNow with background-task source", async () => {
+  it("wake fires via requestHeartbeatNow on terminal state (DONE)", async () => {
     stateDir = await fs.mkdtemp(path.join(os.tmpdir(), "cc-plugin-e2e-"));
     const { api, routes, heartbeats } = buildApi({ stateDir });
 
@@ -148,7 +148,11 @@ describe("hook → system-event queue (full integration)", () => {
     expect(hookRoute).toBeDefined();
 
     await hookRoute!.handler(
-      mockReq({ hook_event_name: "Stop", session_id: "e2e-real-3" }),
+      mockReq({
+        hook_event_name: "SessionEnd",
+        session_id: "e2e-real-3",
+        last_assistant_message: "done",
+      }),
       mockRes(),
     );
 
@@ -157,7 +161,7 @@ describe("hook → system-event queue (full integration)", () => {
       source: "background-task",
       intent: "immediate",
       sessionKey: "agent:main:main",
-      reason: "claude-code:e2e-real-3:WAITING",
+      reason: "claude-code:e2e-real-3:DONE",
     });
   });
 
@@ -200,15 +204,15 @@ describe("hook → system-event queue (full integration)", () => {
     await post({ hook_event_name: "PostToolUse", session_id: sid, tool_name: "Bash" });
     expect(peekSystemEventEntries("agent:main:main")).toHaveLength(0);
 
-    // Stop → WAITING → one notify event
+    // Stop → WAITING → one notify event, no wake
     await post({ hook_event_name: "Stop", session_id: sid });
     let entries = peekSystemEventEntries("agent:main:main");
     expect(entries).toHaveLength(1);
     expect(entries[0].contextKey).toBe(`task:claude-code:${sid}`);
     expect(entries[0].text).toContain("needs attention");
-    expect(heartbeats).toHaveLength(1);
+    expect(heartbeats).toHaveLength(0); // intermediate states don't wake
 
-    // SessionEnd → DONE → terminal event
+    // SessionEnd → DONE → terminal event + wake
     await post({
       hook_event_name: "SessionEnd",
       session_id: sid,
@@ -220,6 +224,6 @@ describe("hook → system-event queue (full integration)", () => {
     );
     expect(doneEntry).toBeDefined();
     if (doneEntry) expect(doneEntry.text).toContain("all done");
-    expect(heartbeats).toHaveLength(2);
+    expect(heartbeats).toHaveLength(1); // only the DONE wake
   });
 });

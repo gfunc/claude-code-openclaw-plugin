@@ -58,16 +58,21 @@ export function createTaskRegistry(deps: TaskRegistryDeps): TaskRegistry {
       const reason = `claude-code:${state.sessionId}:${state.state}`;
       log?.(`claude-code: notify state=${state.state} sessionId=${state.sessionId} contextKey=${contextKey}`);
 
+      // Terminal states → enqueue event + wake immediately.
+      // These are the ONLY states that trigger a wake: every wake now means
+      // "a session completed — report results to the user now."
       if (TERMINAL_STATES.has(state.state)) {
         const result = extractResultText(state.lastHookPayload);
-        const text = `✅ Claude Code session \`${label}\` **${state.state === "FATAL" ? "timed out" : "finished"}**.` +
-          (result ? `\n\n> ${result.slice(0, 500)}` : "");
+        const resultSuffix = result ? `\n\n> ${result.slice(0, 500)}` : "";
+        const text = `🚨 Claude Code session \`${label}\` **${state.state === "FATAL" ? "timed out" : "finished"}**. Report this to the user now.${resultSuffix}`;
         const ok = enqueueSystemEvent(text, { sessionKey: requesterSessionKey, contextKey });
         log?.(`claude-code: enqueue terminal ok=${ok} sessionId=${state.sessionId} state=${state.state} contextKey=${contextKey} sessionKey=${requesterSessionKey}`);
         wake(reason);
         return;
       }
 
+      // Intermediate states → enqueue event only, no wake.
+      // The agent will drain these during its next natural heartbeat cycle.
       if (NOTIFY_STATES.has(state.state)) {
         const key = `${state.sessionId}:${state.state}`;
         if (seenStates.has(key)) return;
@@ -76,7 +81,6 @@ export function createTaskRegistry(deps: TaskRegistryDeps): TaskRegistry {
         const text = `⚠️ Claude Code session \`${label}\` is **${state.state.toLowerCase()}** — needs attention.`;
         const ok = enqueueSystemEvent(text, { sessionKey: requesterSessionKey, contextKey });
         log?.(`claude-code: enqueue notify ok=${ok} sessionId=${state.sessionId} state=${state.state} contextKey=${contextKey}`);
-        wake(reason);
         return;
       }
     },
