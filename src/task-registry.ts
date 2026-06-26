@@ -41,6 +41,15 @@ export type TaskRegistryDeps = {
   }) => void;
   requesterSessionKey: string;
   log?: (text: string) => void;
+  // Called on terminal state transition. Receives the user-facing text and
+  // session metadata. The caller can emit notifications via external channels
+  // (wecom webhook, etc.) bypassing OpenClaw's internal heartbeat system.
+  onTerminalState?: (params: {
+    sessionId: string;
+    label: string;
+    state: string;
+    text: string;
+  }) => void;
 };
 
 const NOTIFY_STATES = new Set(["WAITING", "QUESTION", "PERMISSION", "ERROR"]);
@@ -86,6 +95,12 @@ export function createTaskRegistry(deps: TaskRegistryDeps): TaskRegistry {
         const text = `exec ${verb} (claude-code-${execId}, ${exitCode}) :: ${body}`;
         const ok = enqueueSystemEvent(text, { sessionKey: requesterSessionKey, contextKey });
         log?.(`claude-code: enqueue terminal ok=${ok} sessionId=${state.sessionId} state=${state.state} contextKey=${contextKey} sessionKey=${requesterSessionKey}`);
+        deps.onTerminalState?.({
+          sessionId: state.sessionId,
+          label,
+          state: state.state,
+          text: body,
+        });
         wake(reason);
         return;
       }

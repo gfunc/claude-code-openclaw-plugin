@@ -47,6 +47,7 @@ const pluginConfigJsonSchema = {
       default: "bypassPermissions",
     },
     debugLog: { type: "boolean", default: false },
+    wecomWebhookUrl: { type: "string" },
   },
   required: [],
 } as const;
@@ -93,6 +94,21 @@ const plugin: OpenClawPluginDefinition = definePluginEntry({
       },
       log: (text) => api.logger?.info?.(text),
       requesterSessionKey: config.targetSessionKey,
+      onTerminalState: config.wecomWebhookUrl
+        ? ({ sessionId, label, state, text }) => {
+            const markdown = `## ${state === "FATAL" ? "⏰ Timed Out" : "✅ Completed"}: \`${label}\`\n> ${text.replace(/🚨 Claude Code session.*?\*\*/, "").replace(/\n> /g, "\n> ").slice(0, 2000)}`;
+            fetch(config.wecomWebhookUrl!, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                msgtype: "markdown",
+                markdown: { content: markdown },
+              }),
+            }).catch((err) => {
+              api.logger?.warn(`claude-code: wecom webhook failed: ${String(err)}`);
+            });
+          }
+        : undefined,
     });
 
     const routes = createClaudeCodeRoutes({

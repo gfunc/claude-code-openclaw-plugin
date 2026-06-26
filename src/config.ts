@@ -41,6 +41,9 @@ export const pluginConfigSchema = z.object({
   // Append a line per received hook to <stateFileDir>/<sessionId>.log.
   // Off by default; logs are not rotated.
   debugLog: z.boolean().default(false),
+  // If set, POST completion notifications to this WeCom webhook URL.
+  // Bypasses OpenClaw's internal heartbeat system for reliable delivery.
+  wecomWebhookUrl: z.string().optional(),
 });
 
 export type PluginConfig = z.infer<typeof pluginConfigSchema>;
