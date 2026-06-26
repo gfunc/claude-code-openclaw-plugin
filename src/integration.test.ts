@@ -1,6 +1,14 @@
 import { EventEmitter } from "node:events";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  enqueueSystemEvent,
+  peekSystemEventEntries,
+  resetSystemEventsForTest,
+} from "openclaw/plugin-sdk/system-event-runtime";
 import entry from "./index.js";
 
 function mockReq(body: unknown): IncomingMessage {
@@ -18,56 +26,200 @@ function mockReq(body: unknown): IncomingMessage {
 function mockRes(): ServerResponse {
   const res = new EventEmitter() as unknown as ServerResponse;
   res.statusCode = 200;
-  res.writeHead = ((_code: number) => res) as ServerResponse["writeHead"];
-  res.end = ((body?: string) => {
+  res.writeHead = vi.fn((code: number) => {
+    res.statusCode = code;
+    return res;
+  }) as unknown as ServerResponse["writeHead"];
+  res.end = vi.fn((body?: string) => {
     (res as unknown as { body: string }).body = body ?? "";
     return res;
-  }) as ServerResponse["end"];
+  }) as unknown as ServerResponse["end"];
   return res;
 }
 
-describe("hook event flow", () => {
-  it("Stop hook returns 200 OK and doesn't crash without a host runtime", async () => {
-    const routes: Array<{
-      path: string;
-      handler: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
-    }> = [];
+function buildApi(opts: {
+  stateDir: string;
+  targetSessionKey?: string;
+  notifyStates?: string[];
+  heartbeats?: Array<Record<string, unknown>>;
+}): {
+  api: Record<string, unknown>;
+  routes: Array<{
+    path: string;
+    handler: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
+  }>;
+  heartbeats: Array<Record<string, unknown>>;
+} {
+  const routes: Array<{
+    path: string;
+    handler: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
+  }> = [];
+  const heartbeats = opts.heartbeats ?? [];
 
-    const api = {
-      pluginConfig: {
-        targetSessionKey: "agent:main:main",
-        notifyStates: ["WAITING"],
-        stateFileDir: "~/.cache/claude-code-integration-test",
-      },
-      runtime: {
-        system: {
-          enqueueSystemEvent: () => true,
-          requestHeartbeatNow: () => {},
+  const api = {
+    pluginConfig: {
+      targetSessionKey: opts.targetSessionKey ?? "agent:main:main",
+      notifyStates: opts.notifyStates ?? ["WAITING", "QUESTION", "PERMISSION", "ERROR", "DONE"],
+      stateFileDir: opts.stateDir,
+    },
+    runtime: {
+      system: {
+        // Real system-event queue — same global Map the gateway kernel uses.
+        enqueueSystemEvent,
+        requestHeartbeatNow: (hbOpts: Record<string, unknown>) => {
+          heartbeats.push(hbOpts);
         },
       },
-      registerHttpRoute: (params: {
-        path: string;
-        handler: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
-      }) => {
-        routes.push(params);
-      },
-      registerTool: () => {},
-      registerHook: () => {},
-      registerService: () => {},
-      logger: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} },
-    };
+    },
+    registerHttpRoute: (params: {
+      path: string;
+      handler: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
+    }) => {
+      routes.push(params);
+    },
+    registerTool: () => {},
+    registerHook: () => {},
+    registerService: (svc: { id: string; start: () => Promise<void> }) => {
+      // Auto-start registered services so the timeout service doesn't block.
+      svc.start().catch(() => {});
+    },
+    logger: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} },
+  };
+
+  return { api, routes, heartbeats };
+}
+
+describe("hook → system-event queue (full integration)", () => {
+  let stateDir: string;
+
+  afterEach(async () => {
+    resetSystemEventsForTest();
+    if (stateDir) await fs.rm(stateDir, { recursive: true, force: true }).catch(() => {});
+  });
+
+  it("Stop hook enqueues a task:claude-code:* event into the real queue", async () => {
+    stateDir = await fs.mkdtemp(path.join(os.tmpdir(), "cc-plugin-e2e-"));
+    const { api, routes } = buildApi({ stateDir });
+
+    entry.register!(api as never);
+    const hookRoute = routes.find((r) => r.path === "/claude-code/hook");
+    expect(hookRoute).toBeDefined();
+
+    const req = mockReq({ hook_event_name: "Stop", session_id: "e2e-real-1" });
+    const res = mockRes();
+    await hookRoute!.handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+
+    const entries = peekSystemEventEntries("agent:main:main");
+    expect(entries).toHaveLength(1);
+    expect(entries[0].contextKey).toBe("task:claude-code:e2e-real-1");
+    expect(entries[0].text).toContain("needs attention");
+  });
+
+  it("DONE hook enqueues a terminal event with result text", async () => {
+    stateDir = await fs.mkdtemp(path.join(os.tmpdir(), "cc-plugin-e2e-"));
+    const { api, routes } = buildApi({ stateDir });
 
     entry.register!(api as never);
     const hookRoute = routes.find((r) => r.path === "/claude-code/hook");
     expect(hookRoute).toBeDefined();
 
     const req = mockReq({
-      hook_event_name: "Stop",
-      session_id: "integration-s1",
+      hook_event_name: "SessionEnd",
+      session_id: "e2e-real-2",
+      last_assistant_message: "parity report done — 7 gaps found",
     });
-    const res = mockRes();
-    await hookRoute!.handler(req, res);
+    await hookRoute!.handler(req, mockRes());
 
-    expect(res.statusCode).toBe(200);
+    const entries = peekSystemEventEntries("agent:main:main");
+    expect(entries).toHaveLength(1);
+    expect(entries[0].contextKey).toBe("task:claude-code:e2e-real-2");
+    expect(entries[0].text).toContain("finished");
+    expect(entries[0].text).toContain("parity report done");
+  });
+
+  it("wake fires via requestHeartbeatNow with background-task source", async () => {
+    stateDir = await fs.mkdtemp(path.join(os.tmpdir(), "cc-plugin-e2e-"));
+    const { api, routes, heartbeats } = buildApi({ stateDir });
+
+    entry.register!(api as never);
+    const hookRoute = routes.find((r) => r.path === "/claude-code/hook");
+    expect(hookRoute).toBeDefined();
+
+    await hookRoute!.handler(
+      mockReq({ hook_event_name: "Stop", session_id: "e2e-real-3" }),
+      mockRes(),
+    );
+
+    expect(heartbeats).toHaveLength(1);
+    expect(heartbeats[0]).toMatchObject({
+      source: "background-task",
+      intent: "immediate",
+      sessionKey: "agent:main:main",
+      reason: "claude-code-state-change",
+    });
+  });
+
+  it("WORKING hooks do not enqueue notify events", async () => {
+    stateDir = await fs.mkdtemp(path.join(os.tmpdir(), "cc-plugin-e2e-"));
+    const { api, routes } = buildApi({ stateDir });
+
+    entry.register!(api as never);
+    const hookRoute = routes.find((r) => r.path === "/claude-code/hook");
+    expect(hookRoute).toBeDefined();
+
+    await hookRoute!.handler(
+      mockReq({ hook_event_name: "UserPromptSubmit", session_id: "e2e-real-4" }),
+      mockRes(),
+    );
+    await hookRoute!.handler(
+      mockReq({ hook_event_name: "PreToolUse", session_id: "e2e-real-4", tool_name: "Bash" }),
+      mockRes(),
+    );
+
+    const entries = peekSystemEventEntries("agent:main:main");
+    expect(entries).toHaveLength(0);
+  });
+
+  it("full session lifecycle: WORKING → WAITING → DONE", async () => {
+    stateDir = await fs.mkdtemp(path.join(os.tmpdir(), "cc-plugin-e2e-"));
+    const heartbeats: Array<Record<string, unknown>> = [];
+    const { api, routes } = buildApi({ stateDir, heartbeats });
+
+    entry.register!(api as never);
+    const hookRoute = routes.find((r) => r.path === "/claude-code/hook");
+    expect(hookRoute).toBeDefined();
+    const post = (body: Record<string, unknown>) => hookRoute!.handler(mockReq(body), mockRes());
+
+    const sid = "e2e-lifecycle";
+
+    // WORKING hooks → no events
+    await post({ hook_event_name: "UserPromptSubmit", session_id: sid });
+    await post({ hook_event_name: "PreToolUse", session_id: sid, tool_name: "Bash" });
+    await post({ hook_event_name: "PostToolUse", session_id: sid, tool_name: "Bash" });
+    expect(peekSystemEventEntries("agent:main:main")).toHaveLength(0);
+
+    // Stop → WAITING → one notify event
+    await post({ hook_event_name: "Stop", session_id: sid });
+    let entries = peekSystemEventEntries("agent:main:main");
+    expect(entries).toHaveLength(1);
+    expect(entries[0].contextKey).toBe(`task:claude-code:${sid}`);
+    expect(entries[0].text).toContain("needs attention");
+    expect(heartbeats).toHaveLength(1);
+
+    // SessionEnd → DONE → terminal event
+    await post({
+      hook_event_name: "SessionEnd",
+      session_id: sid,
+      last_assistant_message: "all done",
+    });
+    entries = peekSystemEventEntries("agent:main:main");
+    const doneEntry = entries.find(
+      (e) => e.contextKey === `task:claude-code:${sid}` && e.text.includes("finished"),
+    );
+    expect(doneEntry).toBeDefined();
+    if (doneEntry) expect(doneEntry.text).toContain("all done");
+    expect(heartbeats).toHaveLength(2);
   });
 });
