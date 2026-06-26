@@ -36,12 +36,12 @@ export function createTaskRegistry(deps: TaskRegistryDeps): TaskRegistry {
   const agentId = requesterSessionKey.split(":")[1] ?? "";
   const seenStates = new Set<string>();
 
-  function wake() {
-    log?.(`claude-code: wake source=background-task intent=immediate sessionKey=${requesterSessionKey} agentId=${agentId}`);
+  function wake(reason: string) {
+    log?.(`claude-code: wake reason=${reason} sessionKey=${requesterSessionKey} agentId=${agentId}`);
     requestHeartbeatNow({
       source: "background-task" as const,
       intent: "immediate" as const,
-      reason: "claude-code-state-change",
+      reason,
       sessionKey: requesterSessionKey,
       agentId,
     });
@@ -55,6 +55,7 @@ export function createTaskRegistry(deps: TaskRegistryDeps): TaskRegistry {
     onStateTransition(state) {
       const label = state.tmuxSession ?? state.sessionId;
       const contextKey = `task:claude-code:${state.sessionId}`;
+      const reason = `claude-code:${state.sessionId}:${state.state}`;
       log?.(`claude-code: notify state=${state.state} sessionId=${state.sessionId} contextKey=${contextKey}`);
 
       if (TERMINAL_STATES.has(state.state)) {
@@ -63,7 +64,7 @@ export function createTaskRegistry(deps: TaskRegistryDeps): TaskRegistry {
           (result ? `\n\n> ${result.slice(0, 500)}` : "");
         const ok = enqueueSystemEvent(text, { sessionKey: requesterSessionKey, contextKey });
         log?.(`claude-code: enqueue terminal ok=${ok} sessionId=${state.sessionId} state=${state.state} contextKey=${contextKey} sessionKey=${requesterSessionKey}`);
-        wake();
+        wake(reason);
         return;
       }
 
@@ -75,7 +76,7 @@ export function createTaskRegistry(deps: TaskRegistryDeps): TaskRegistry {
         const text = `⚠️ Claude Code session \`${label}\` is **${state.state.toLowerCase()}** — needs attention.`;
         const ok = enqueueSystemEvent(text, { sessionKey: requesterSessionKey, contextKey });
         log?.(`claude-code: enqueue notify ok=${ok} sessionId=${state.sessionId} state=${state.state} contextKey=${contextKey}`);
-        wake();
+        wake(reason);
         return;
       }
     },

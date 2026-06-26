@@ -157,7 +157,7 @@ describe("hook → system-event queue (full integration)", () => {
       source: "background-task",
       intent: "immediate",
       sessionKey: "agent:main:main",
-      reason: "claude-code-state-change",
+      reason: "claude-code:e2e-real-3:WAITING",
     });
   });
 
