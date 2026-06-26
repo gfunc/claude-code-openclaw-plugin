@@ -2,13 +2,13 @@
 //
 // Uses the bash-bg / detached-task pattern:
 //   enqueueSystemEvent(text, { contextKey: "task:claude-code:<id>" })
-//   requestHeartbeatNow({ source: "background-task", intent: "immediate" })
+//   requestHeartbeatNow({ source: "hook", intent: "immediate" })
 //
-// With "task:" prefix (NOT "cron:"), the event survives heartbeat-ownership
-// and appears as a System: line in the requester's next user turn via
-// drainFormattedSystemEvents. The heartbeat-runner does not claim it, and
-// it is NOT suppressed by selectGenericSystemEvents (which only filters
-// cron:-prefixed events when suppressHeartbeatOwnedEvents=true).
+// source MUST be "hook" (not "background-task") — the OpenClaw heartbeat
+// runner only treats source="hook"/"acp-spawn" or reason="wake" as a wake
+// payload (isWakePayload=true).  Without isWakePayload the runner returns
+// "skipped: no-tasks-due" and silently consumes pending system events
+// without generating a user-visible reply.
 
 export type TaskRegistry = {
   createTask(params: { runId: string; task: string; label?: string }): void;
@@ -39,7 +39,7 @@ export function createTaskRegistry(deps: TaskRegistryDeps): TaskRegistry {
   function wake(reason: string) {
     log?.(`claude-code: wake reason=${reason} sessionKey=${requesterSessionKey} agentId=${agentId}`);
     requestHeartbeatNow({
-      source: "background-task" as const,
+      source: "hook" as const,
       intent: "immediate" as const,
       reason,
       sessionKey: requesterSessionKey,

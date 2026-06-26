@@ -158,7 +158,7 @@ describe("hook → system-event queue (full integration)", () => {
 
     expect(heartbeats).toHaveLength(1);
     expect(heartbeats[0]).toMatchObject({
-      source: "background-task",
+      source: "hook",
       intent: "immediate",
       sessionKey: "agent:main:main",
       reason: "claude-code:e2e-real-3:DONE",
