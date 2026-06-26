@@ -1,158 +1,92 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
-import type { ClaudeCodeHookPayload, SessionState } from "./state.js";
-
-vi.mock("openclaw/plugin-sdk/agent-harness-task-runtime", () => ({
-  createAgentHarnessTaskRuntime: vi.fn(() => ({
-    createRunningTaskRun: vi.fn(() => ({ runId: "test-run", taskId: "task-1" })),
-    recordTaskRunProgressByRunId: vi.fn(() => [{ runId: "test-run" }]),
-    finalizeTaskRunByRunId: vi.fn(() => [{ runId: "test-run" }]),
-  })),
-  deliverAgentHarnessTaskCompletion: vi.fn(() =>
-    Promise.resolve({ delivered: true, path: "direct" }),
-  ),
-}));
-
+// @ts-nocheck — vitest mock.calls typing doesn't narrow after toHaveBeenCalled()
+import { describe, expect, it, vi } from "vitest";
 import { createTaskRegistry } from "./task-registry.js";
-import {
-  createAgentHarnessTaskRuntime,
-  deliverAgentHarnessTaskCompletion,
-} from "openclaw/plugin-sdk/agent-harness-task-runtime";
 
-type MockHarness = {
-  createRunningTaskRun: ReturnType<typeof vi.fn>;
-  recordTaskRunProgressByRunId: ReturnType<typeof vi.fn>;
-  finalizeTaskRunByRunId: ReturnType<typeof vi.fn>;
-};
-
-function getHarness(): MockHarness {
-  return vi.mocked(createAgentHarnessTaskRuntime).mock
-    .results[0].value as MockHarness;
-}
-
-function makeState(
-  overrides: Record<string, unknown> & { sessionId: string; state: string },
-): SessionState {
+function makeState(overrides: Record<string, unknown> = {}) {
   return {
-    tmuxSession: "test-tmux",
-    lastHookEvent: "Stop",
-    lastHookPayload: {
-      hook_event_name: "Stop",
-      session_id: overrides.sessionId,
-    } as ClaudeCodeHookPayload,
-    stateSince: Date.now(),
-    lastSeenAt: Date.now(),
-    history: [],
+    sessionId: "sid-1",
+    tmuxSession: "cc-test",
+    state: "WAITING",
+    lastHookPayload: { hook_event_name: "Stop", session_id: "sid-1" },
     ...overrides,
-  } as unknown as SessionState;
+  };
 }
 
 describe("createTaskRegistry", () => {
-  let registry: ReturnType<typeof createTaskRegistry>;
-  let harness: MockHarness;
+  const requesterSessionKey = "agent:main:main";
 
-  beforeEach(() => {
-    vi.clearAllMocks();
-    registry = createTaskRegistry({ requesterSessionKey: "test-key" });
-    harness = getHarness();
+  it("enqueues and wakes on WAITING transition", () => {
+    const enqueueSystemEvent = vi.fn(() => true);
+    const requestHeartbeatNow = vi.fn();
+    const reg = createTaskRegistry({ enqueueSystemEvent, requestHeartbeatNow, requesterSessionKey });
+
+    reg.onStateTransition(makeState({ state: "WAITING" }));
+
+    expect(enqueueSystemEvent).toHaveBeenCalledWith(
+      expect.stringContaining("needs attention"),
+      expect.objectContaining({
+        sessionKey: requesterSessionKey,
+        contextKey: "task:claude-code:sid-1",
+      }),
+    );
+    expect(requestHeartbeatNow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "background-task",
+        intent: "immediate",
+        sessionKey: requesterSessionKey,
+      }),
+    );
   });
 
-  it("createTask calls harness and returns record", () => {
-    const result = registry.createTask({
-      runId: "run-1",
-      task: "test task",
-      label: "my-label",
-    });
+  it("does not fire on WORKING transitions", () => {
+    const enqueueSystemEvent = vi.fn(() => true);
+    const requestHeartbeatNow = vi.fn();
+    const reg = createTaskRegistry({ enqueueSystemEvent, requestHeartbeatNow, requesterSessionKey });
 
-    expect(harness.createRunningTaskRun).toHaveBeenCalledWith({
-      runId: "run-1",
-      task: "test task",
-      label: "my-label",
-      notifyPolicy: "state_changes",
-    });
-    expect(result).toEqual({ runId: "test-run", taskId: "task-1" });
+    reg.onStateTransition(makeState({ state: "WORKING" }));
+
+    expect(enqueueSystemEvent).not.toHaveBeenCalled();
   });
 
-  it("onStateTransition with WAITING state fires progress", () => {
-    registry.createTask({ runId: "run-1", task: "test task", label: "my-label" });
+  it("does not re-fire for same state twice", () => {
+    const enqueueSystemEvent = vi.fn(() => true);
+    const requestHeartbeatNow = vi.fn();
+    const reg = createTaskRegistry({ enqueueSystemEvent, requestHeartbeatNow, requesterSessionKey });
 
-    const state = makeState({
-      sessionId: "sess-1",
-      state: "WAITING",
-      runId: "run-1",
-      requesterSessionKey: "test-key",
-    });
-    registry.onStateTransition(state, "WORKING");
+    reg.onStateTransition(makeState({ state: "WAITING" }));
+    reg.onStateTransition(makeState({ state: "WAITING" }));
 
-    expect(harness.recordTaskRunProgressByRunId).toHaveBeenCalledWith({
-      runId: "run-1",
-      eventSummary: "session my-label is WAITING",
-    });
+    expect(enqueueSystemEvent).toHaveBeenCalledTimes(1);
   });
 
-  it("onStateTransition with WORKING state does NOT fire progress", () => {
-    registry.createTask({ runId: "run-1", task: "test task", label: "my-label" });
+  it("fires terminal event with result text for DONE", () => {
+    const enqueueSystemEvent = vi.fn(() => true);
+    const requestHeartbeatNow = vi.fn();
+    const reg = createTaskRegistry({ enqueueSystemEvent, requestHeartbeatNow, requesterSessionKey });
 
-    const state = makeState({
-      sessionId: "sess-2",
-      state: "WORKING",
-      runId: "run-1",
-      requesterSessionKey: "test-key",
-    });
-    registry.onStateTransition(state, "WAITING");
-
-    expect(harness.recordTaskRunProgressByRunId).not.toHaveBeenCalled();
-  });
-
-  it("onStateTransition with WAITING state that was already seen does NOT re-fire", () => {
-    registry.createTask({ runId: "run-1", task: "test task", label: "my-label" });
-
-    const state = makeState({
-      sessionId: "sess-3",
-      state: "WAITING",
-      runId: "run-1",
-      requesterSessionKey: "test-key",
-    });
-
-    registry.onStateTransition(state, "WORKING");
-    expect(harness.recordTaskRunProgressByRunId).toHaveBeenCalledTimes(1);
-
-    registry.onStateTransition(state, "WORKING");
-    expect(harness.recordTaskRunProgressByRunId).toHaveBeenCalledTimes(1);
-  });
-
-  it("onStateTransition with DONE state calls finalize AND deliverCompletion", () => {
-    registry.createTask({ runId: "run-1", task: "test task", label: "my-label" });
-
-    const state = makeState({
-      sessionId: "sess-4",
+    reg.onStateTransition(makeState({
       state: "DONE",
-      runId: "run-1",
-      requesterSessionKey: "test-key",
-      stateSince: 1_000_000,
       lastHookPayload: {
         hook_event_name: "SessionEnd",
-        session_id: "sess-4",
+        session_id: "sid-1",
+        last_assistant_message: "all done here",
       },
-    });
-    registry.onStateTransition(state, "WORKING");
+    }));
 
-    expect(harness.finalizeTaskRunByRunId).toHaveBeenCalledWith({
-      runId: "run-1",
-      endedAt: 1_000_000,
-      status: "succeeded",
-      terminalSummary: "No output",
-    });
+    expect(enqueueSystemEvent).toHaveBeenCalled();
+    const call = enqueueSystemEvent.mock.calls[0]!;
+    expect(call[0]).toContain("finished");
+    expect(call[0]).toContain("all done here");
+    expect((call[1] as { contextKey: string }).contextKey).toBe("task:claude-code:sid-1");
+    expect(requestHeartbeatNow).toHaveBeenCalled();
+  });
 
-    expect(deliverAgentHarnessTaskCompletion).toHaveBeenCalledWith({
-      scope: { requesterSessionKey: "test-key" },
-      childSessionKey: "claude-code:sess-4",
-      childSessionId: "sess-4",
-      announceId: "claude-code:sess-4:done",
-      status: "succeeded",
-      statusLabel: "Succeeded",
-      result: "No output",
-      taskLabel: "my-label",
-      announceType: "Claude Code session",
+  it("createTask is a no-op", () => {
+    const reg = createTaskRegistry({
+      enqueueSystemEvent: vi.fn(() => true),
+      requestHeartbeatNow: vi.fn(),
+      requesterSessionKey,
     });
+    expect(() => reg.createTask({ runId: "r1", task: "do stuff" })).not.toThrow();
   });
 });

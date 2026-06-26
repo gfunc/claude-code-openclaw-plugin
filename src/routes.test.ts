@@ -102,9 +102,7 @@ describe("createClaudeCodeRoutes", () => {
     const callArgs = (taskRegistry.onStateTransition as ReturnType<typeof vi.fn>).mock
       .calls[0];
     const stateArg = callArgs?.[0] as SessionState;
-    const prevStateArg = callArgs?.[1] as string;
     expect(stateArg.state).toBe("WAITING");
-    expect(prevStateArg).toBe("");
   });
 
   it("returns 404 for unknown tmux session on send", async () => {

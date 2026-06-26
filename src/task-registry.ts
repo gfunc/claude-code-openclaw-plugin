@@ -1,92 +1,67 @@
-import {
-  createAgentHarnessTaskRuntime,
-  deliverAgentHarnessTaskCompletion,
-} from "openclaw/plugin-sdk/agent-harness-task-runtime";
-import type { AgentHarnessTaskRuntime } from "openclaw/plugin-sdk/agent-harness-task-runtime";
-import type { SessionState, ClaudeCodeHookPayload } from "./state.js";
-
-const NOTIFY_STATES = new Set(["WAITING", "QUESTION", "PERMISSION", "ERROR"]);
+// Notification bridge: hook events → requester session system events.
+//
+// Uses the bash-bg / detached-task pattern:
+//   enqueueSystemEvent(text, { contextKey: "task:claude-code:<id>" })
+//   requestHeartbeatNow({ source: "background-task", intent: "immediate" })
+//
+// With "task:" prefix (NOT "cron:"), the event survives heartbeat-ownership
+// and appears as a System: line in the requester's next user turn via
+// drainFormattedSystemEvents. The heartbeat-runner does not claim it, and
+// it is NOT suppressed by selectGenericSystemEvents (which only filters
+// cron:-prefixed events when suppressHeartbeatOwnedEvents=true).
 
 export type TaskRegistry = {
-  createTask(params: {
-    runId: string;
-    task: string;
-    label?: string;
-  }): ReturnType<AgentHarnessTaskRuntime["createRunningTaskRun"]>;
-  onStateTransition(state: SessionState, prevState: string): void;
+  createTask(params: { runId: string; task: string; label?: string }): void;
+  onStateTransition(state: { sessionId: string; tmuxSession?: string; state: string; lastHookPayload: Record<string, unknown> }): void;
 };
 
-export function createTaskRegistry(opts: {
+export type TaskRegistryDeps = {
+  enqueueSystemEvent: (text: string, opts: { sessionKey: string; contextKey: string }) => boolean;
+  requestHeartbeatNow: (opts: {
+    source: string;
+    intent: string;
+    reason: string;
+    sessionKey: string;
+    agentId?: string;
+  }) => void;
   requesterSessionKey: string;
-  harness?: AgentHarnessTaskRuntime;
-}): TaskRegistry {
-  const { requesterSessionKey } = opts;
+  log?: (text: string) => void;
+};
 
-  let harness: AgentHarnessTaskRuntime;
-  try {
-    harness =
-      opts.harness ??
-      createAgentHarnessTaskRuntime({
-        runtime: "cli",
-        scope: { requesterSessionKey },
-        taskKind: "claude-code",
-        runIdPrefix: "",
-      });
-  } catch {
-    // No OpenClaw runtime available (e.g. unit tests). Return a no-op
-    // registry so callers don't crash.
-    return {
-      createTask: () => ({ runId: "", taskId: "" }) as ReturnType<AgentHarnessTaskRuntime["createRunningTaskRun"]>,
-      onStateTransition: () => {},
-    };
+const NOTIFY_STATES = new Set(["WAITING", "QUESTION", "PERMISSION", "ERROR"]);
+const TERMINAL_STATES = new Set(["DONE", "FATAL"]);
+
+export function createTaskRegistry(deps: TaskRegistryDeps): TaskRegistry {
+  const { enqueueSystemEvent, requestHeartbeatNow, requesterSessionKey, log } = deps;
+  const agentId = requesterSessionKey.split(":")[1] ?? "";
+  const seenStates = new Set<string>();
+
+  function wake() {
+    requestHeartbeatNow({
+      source: "background-task" as const,
+      intent: "immediate" as const,
+      reason: "claude-code-state-change",
+      sessionKey: requesterSessionKey,
+      agentId,
+    });
   }
 
-  const scope = { requesterSessionKey };
-  const seenStates = new Set<string>();
-  const taskLabels = new Map<string, string>();
-
   return {
-    createTask(params: { runId: string; task: string; label?: string }) {
-      const label = params.label ?? params.runId;
-      taskLabels.set(params.runId, label);
-      return harness.createRunningTaskRun({
-        runId: params.runId,
-        task: params.task,
-        label,
-        notifyPolicy: "state_changes",
-      });
+    createTask() {
+      // No persistent task record needed — the enqueue path handles delivery.
     },
 
-    onStateTransition(state: SessionState, _prevState: string): void {
-      if (!state.runId || !state.requesterSessionKey) return;
+    onStateTransition(state) {
+      const label = state.tmuxSession ?? state.sessionId;
+      const contextKey = `task:claude-code:${state.sessionId}`;
+      log?.(`claude-code: notify state=${state.state} sessionId=${state.sessionId} contextKey=${contextKey}`);
 
-      const runId = state.runId;
-      const label = taskLabels.get(runId) ?? runId;
-
-      if (state.state === "DONE" || state.state === "FATAL") {
-        const terminalSummary = extractResultText(state.lastHookPayload) ?? "No output";
-        const status = state.state === "FATAL" ? "timed_out" : "succeeded";
-
-        harness.finalizeTaskRunByRunId({
-          runId,
-          endedAt: state.stateSince,
-          status,
-          terminalSummary,
-        });
-
-        deliverAgentHarnessTaskCompletion({
-          scope,
-          childSessionKey: `claude-code:${state.sessionId}`,
-          childSessionId: state.sessionId,
-          announceId: `claude-code:${state.sessionId}:${state.state.toLowerCase()}`,
-          status: state.state === "FATAL" ? "failed" : "succeeded",
-          statusLabel: state.state === "FATAL" ? "Failed" : "Succeeded",
-          result: terminalSummary,
-          taskLabel: label,
-          announceType: "Claude Code session",
-        }).catch(() => {
-          // fire-and-forget: rejections are non-fatal
-        });
+      if (TERMINAL_STATES.has(state.state)) {
+        const result = extractResultText(state.lastHookPayload);
+        const text = `✅ Claude Code session \`${label}\` **${state.state === "FATAL" ? "timed out" : "finished"}**.` +
+          (result ? `\n\n> ${result.slice(0, 500)}` : "");
+        enqueueSystemEvent(text, { sessionKey: requesterSessionKey, contextKey });
+        wake();
         return;
       }
 
@@ -94,22 +69,18 @@ export function createTaskRegistry(opts: {
         const key = `${state.sessionId}:${state.state}`;
         if (seenStates.has(key)) return;
         seenStates.add(key);
-        harness.recordTaskRunProgressByRunId({
-          runId,
-          eventSummary: `session ${label} is ${state.state}`,
-        });
+
+        const text = `⚠️ Claude Code session \`${label}\` is **${state.state.toLowerCase()}** — needs attention.`;
+        enqueueSystemEvent(text, { sessionKey: requesterSessionKey, contextKey });
+        wake();
         return;
       }
-
-      // Non-notify states (WORKING): no-op
     },
   };
 }
 
-export function extractResultText(payload: ClaudeCodeHookPayload): string | undefined {
-  const text = payload.last_assistant_message;
-  if (typeof text === "string" && text.length > 0) {
-    return text.slice(0, 2000);
-  }
+function extractResultText(payload: Record<string, unknown>): string | undefined {
+  const msg = payload.last_assistant_message;
+  if (typeof msg === "string" && msg.trim()) return msg.trim();
   return undefined;
 }

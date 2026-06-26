@@ -69,6 +69,23 @@ const plugin: OpenClawPluginDefinition = definePluginEntry({
     });
 
     const taskReg = createTaskRegistry({
+      enqueueSystemEvent: (text, opts) => {
+        try {
+          return api.runtime.system.enqueueSystemEvent(text, opts);
+        } catch (err) {
+          api.logger?.warn(`claude-code: enqueueSystemEvent failed: ${String(err)}`);
+          return false;
+        }
+      },
+      requestHeartbeatNow: (opts) => {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          api.runtime.system.requestHeartbeatNow(opts as any);
+        } catch (err) {
+          api.logger?.warn(`claude-code: requestHeartbeatNow failed: ${String(err)}`);
+        }
+      },
+      log: (text) => api.logger?.info?.(text),
       requesterSessionKey: config.targetSessionKey,
     });
 
@@ -142,7 +159,7 @@ const plugin: OpenClawPluginDefinition = definePluginEntry({
                 "no hook received within sessionTimeoutSeconds",
               );
               if (updated) {
-                taskReg.onStateTransition(updated, "WORKING");
+                taskReg.onStateTransition(updated);
               }
             }
           }
