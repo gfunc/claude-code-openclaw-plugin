@@ -1,24 +1,29 @@
 // Notification bridge: hook events → requester session system events.
 //
-//   enqueueSystemEvent(text, { contextKey: "task:claude-code:<id>" })
+// Uses the SAME exec-completion event format as OpenClaw's own bash-bg /
+// detached-task pattern:
+//
+//   enqueueSystemEvent(
+//     "exec completed (claude-code-<id>, code 0) :: <message>",
+//     { contextKey: "task:claude-code:<id>" }
+//   )
 //   requestHeartbeatNow({ source: "hook", intent: "immediate" })
 //
-// contextKey MUST use "task:" prefix (NOT "cron:") — with "cron:" the
-// heartbeat runner's hasTaggedCronEvents becomes true, which forces
-// shouldInspectPendingEvents=true for ALL heartbeats (interval + wake).
-// Interval heartbeats then silently consume the events without generating
-// a user-visible prompt, deleting them before the wake can process them.
+// Why this works:
+// 1. The text matches STRUCTURED_EXEC_COMPLETION_EVENT_RE → isExecCompletionEvent=true
+// 2. Wake heartbeats (isWakePayload=true, source="hook") inspect pending events →
+//    hasExecCompletion=true → buildExecEventPrompt() generates a prompt like
+//    "An async command you ran earlier has completed. Please relay..."
+// 3. The heartbeat runner dispatches this prompt → agent generates user-visible reply
+// 4. Interval heartbeats (isWakePayload=false) skip event inspection entirely
+//    because shouldInspectPendingEvents=false (all four flags are false with
+//    task: prefix + non-wake source) → events survive until the wake processes them
 //
-// With "task:": hasTaggedCronEvents=false, so interval heartbeats leave
-// the events alone.  Wake heartbeats (isWakePayload=true) also don't
-// consume them (guarded by !isWakePayload check).  The events survive
-// in the queue and appear as System: lines via drainFormattedSystemEvents
-// in the user's next conversation turn.
+// contextKey uses "task:" prefix so hasTaggedCronEvents stays false, preventing
+// interval heartbeats from inspecting/consuming events.
 //
-// source MUST be "hook" (not "background-task") — the runner only treats
-// source="hook"/"acp-spawn" or reason="wake" as a wake payload
-// (isWakePayload=true).  Without isWakePayload the runner returns
-// "skipped: no-tasks-due" and silently consumes pending system events.
+// source MUST be "hook" — the runner only treats source="hook"/"acp-spawn" or
+// reason="wake" as isWakePayload=true (required for event inspection + prompt gen).
 
 export type TaskRegistry = {
   createTask(params: { runId: string; task: string; label?: string }): void;
@@ -68,13 +73,17 @@ export function createTaskRegistry(deps: TaskRegistryDeps): TaskRegistry {
       const reason = `claude-code:${state.sessionId}:${state.state}`;
       log?.(`claude-code: notify state=${state.state} sessionId=${state.sessionId} contextKey=${contextKey}`);
 
-      // Terminal states → enqueue event + wake immediately.
-      // These are the ONLY states that trigger a wake: every wake now means
-      // "a session completed — report results to the user now."
+      // Terminal states → enqueue as exec-completion event + wake immediately.
+      // The exec format is recognized by the heartbeat runner as a background
+      // task completion, which generates a prompt and user-visible reply.
       if (TERMINAL_STATES.has(state.state)) {
         const result = extractResultText(state.lastHookPayload);
-        const resultSuffix = result ? `\n\n> ${result.slice(0, 500)}` : "";
-        const text = `🚨 Claude Code session \`${label}\` **${state.state === "FATAL" ? "timed out" : "finished"}**. Report this to the user now.${resultSuffix}`;
+        const resultSuffix = result ? `\n> ${result.slice(0, 7000)}` : "";
+        const execId = state.sessionId.replace(/[^a-z0-9_-]/gi, "-").slice(0, 64);
+        const verb = state.state === "FATAL" ? "failed" : "completed";
+        const exitCode = state.state === "FATAL" ? "code 1" : "code 0";
+        const body = `🚨 Claude Code session \`${label}\` **${state.state === "FATAL" ? "timed out" : "finished"}**.${resultSuffix}`;
+        const text = `exec ${verb} (claude-code-${execId}, ${exitCode}) :: ${body}`;
         const ok = enqueueSystemEvent(text, { sessionKey: requesterSessionKey, contextKey });
         log?.(`claude-code: enqueue terminal ok=${ok} sessionId=${state.sessionId} state=${state.state} contextKey=${contextKey} sessionKey=${requesterSessionKey}`);
         wake(reason);
