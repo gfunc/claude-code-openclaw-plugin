@@ -1,14 +1,19 @@
 // Notification bridge: hook events → requester session system events.
 //
-// Uses the bash-bg / detached-task pattern:
-//   enqueueSystemEvent(text, { contextKey: "task:claude-code:<id>" })
+//   enqueueSystemEvent(text, { contextKey: "cron:claude-code:<id>" })
 //   requestHeartbeatNow({ source: "hook", intent: "immediate" })
 //
-// source MUST be "hook" (not "background-task") — the OpenClaw heartbeat
-// runner only treats source="hook"/"acp-spawn" or reason="wake" as a wake
-// payload (isWakePayload=true).  Without isWakePayload the runner returns
-// "skipped: no-tasks-due" and silently consumes pending system events
-// without generating a user-visible reply.
+// contextKey MUST use "cron:" prefix (not "task:") — the OpenClaw heartbeat
+// runner's resolveHeartbeatRunPrompt only generates a user-visible prompt for
+// system events when either (a) the event matches the exec-completion pattern,
+// (b) the contextKey starts with "cron:", or (c) a heartbeat file has tasks.
+// Without one of these, the runner returns prompt=null → "skipped: no-tasks-due"
+// and the events sit in the queue forever without being surfaced.
+//
+// source MUST be "hook" (not "background-task") — the runner only treats
+// source="hook"/"acp-spawn" or reason="wake" as a wake payload
+// (isWakePayload=true).  Without isWakePayload the runner returns
+// "skipped: no-tasks-due" and silently consumes pending system events.
 
 export type TaskRegistry = {
   createTask(params: { runId: string; task: string; label?: string }): void;
@@ -54,7 +59,7 @@ export function createTaskRegistry(deps: TaskRegistryDeps): TaskRegistry {
 
     onStateTransition(state) {
       const label = state.tmuxSession ?? state.sessionId;
-      const contextKey = `task:claude-code:${state.sessionId}`;
+      const contextKey = `cron:claude-code:${state.sessionId}`;
       const reason = `claude-code:${state.sessionId}:${state.state}`;
       log?.(`claude-code: notify state=${state.state} sessionId=${state.sessionId} contextKey=${contextKey}`);
 

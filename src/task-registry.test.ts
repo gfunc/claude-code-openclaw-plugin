@@ -36,7 +36,7 @@ describe("createTaskRegistry", () => {
         expect.stringContaining("needs attention"),
         expect.objectContaining({
           sessionKey: requesterSessionKey,
-          contextKey: "task:claude-code:sid-1",
+          contextKey: "cron:claude-code:sid-1",
         }),
       );
       expect(requestHeartbeatNow).not.toHaveBeenCalled();
@@ -86,7 +86,7 @@ describe("createTaskRegistry", () => {
       } else {
         expect(call[0]).toContain("finished");
       }
-      expect(call[1].contextKey).toBe("task:claude-code:sid-1");
+      expect(call[1].contextKey).toBe("cron:claude-code:sid-1");
       expect(requestHeartbeatNow).toHaveBeenCalled();
     },
   );
