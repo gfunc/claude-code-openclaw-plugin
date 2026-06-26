@@ -37,6 +37,7 @@ export function createTaskRegistry(deps: TaskRegistryDeps): TaskRegistry {
   const seenStates = new Set<string>();
 
   function wake() {
+    log?.(`claude-code: wake source=background-task intent=immediate sessionKey=${requesterSessionKey} agentId=${agentId}`);
     requestHeartbeatNow({
       source: "background-task" as const,
       intent: "immediate" as const,
@@ -60,7 +61,8 @@ export function createTaskRegistry(deps: TaskRegistryDeps): TaskRegistry {
         const result = extractResultText(state.lastHookPayload);
         const text = `✅ Claude Code session \`${label}\` **${state.state === "FATAL" ? "timed out" : "finished"}**.` +
           (result ? `\n\n> ${result.slice(0, 500)}` : "");
-        enqueueSystemEvent(text, { sessionKey: requesterSessionKey, contextKey });
+        const ok = enqueueSystemEvent(text, { sessionKey: requesterSessionKey, contextKey });
+        log?.(`claude-code: enqueue terminal ok=${ok} sessionId=${state.sessionId} state=${state.state} contextKey=${contextKey} sessionKey=${requesterSessionKey}`);
         wake();
         return;
       }
@@ -71,7 +73,8 @@ export function createTaskRegistry(deps: TaskRegistryDeps): TaskRegistry {
         seenStates.add(key);
 
         const text = `⚠️ Claude Code session \`${label}\` is **${state.state.toLowerCase()}** — needs attention.`;
-        enqueueSystemEvent(text, { sessionKey: requesterSessionKey, contextKey });
+        const ok = enqueueSystemEvent(text, { sessionKey: requesterSessionKey, contextKey });
+        log?.(`claude-code: enqueue notify ok=${ok} sessionId=${state.sessionId} state=${state.state} contextKey=${contextKey}`);
         wake();
         return;
       }

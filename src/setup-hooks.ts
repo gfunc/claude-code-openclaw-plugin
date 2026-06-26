@@ -8,7 +8,7 @@ export type SetupHooksConfig = {
   templatePath?: string;
 };
 
-const HOOK_URL = "http://127.0.0.1:18789/claude-code/hook";
+export const HOOK_URL = "http://127.0.0.1:18789/claude-code/hook";
 
 // Hook events the plugin actually acts on. Kept minimal: each event below
 // either (a) drives a state the task-registry notifies on, or (b) refreshes

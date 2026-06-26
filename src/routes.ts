@@ -48,12 +48,14 @@ export function createClaudeCodeRoutes({
   taskRegistry,
   sendKeys,
   discoverSession,
+  log,
 }: {
   store: SessionStore;
   config: PluginConfig;
   taskRegistry?: TaskRegistry;
   sendKeys?: SendKeysFn;
   discoverSession?: (sessionId: string) => Promise<DiscoveredSession | undefined>;
+  log?: (text: string) => void;
 }) {
   const lastSendAt = new Map<string, number>();
 
@@ -62,7 +64,12 @@ export function createClaudeCodeRoutes({
       const body = JSON.parse((await readBody(req)).toString("utf8"));
       const payload = parseHookPayload(body);
       const prevState = store.getState(payload.session_id);
+      log?.(`claude-code: hook received event=${payload.hook_event_name} sessionId=${payload.session_id}` +
+        (prevState ? ` prevState=${prevState.state}` : " (new)"));
       const state = await store.applyHook(payload, async () => discoverSession?.(payload.session_id));
+      if (prevState?.state !== state.state) {
+        log?.(`claude-code: state transition ${prevState?.state ?? "none"} -> ${state.state} sessionId=${state.sessionId}`);
+      }
       // On first hook for a session, set requester context if not already set.
       if (!prevState && state.runId === undefined) {
         store.setRequesterContext(

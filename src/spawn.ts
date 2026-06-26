@@ -11,6 +11,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
+import { HOOK_URL } from "./setup-hooks.js";
 
 export type SpawnDeps = {
   exec?: ExecFn;
@@ -81,6 +82,23 @@ done
   }
 }
 
+async function checkHooksConfigured(workdir: string): Promise<boolean> {
+  const files = [
+    path.join(os.homedir(), ".claude", "settings.json"),
+    path.join(workdir, ".claude", "settings.json"),
+    path.join(workdir, ".claude", "settings.local.json"),
+  ];
+  for (const f of files) {
+    try {
+      const content = await fs.readFile(f, "utf8");
+      if (content.includes(HOOK_URL)) return true;
+    } catch {
+      // file does not exist or is not readable
+    }
+  }
+  return false;
+}
+
 export async function spawnSession({
   tmuxSession,
   task,
@@ -111,6 +129,7 @@ export async function spawnSession({
   logFile: string;
   stateFile: string;
   error?: string;
+  warning?: string;
 }> {
   const sessionId = uuid();
   const logFile = path.join(tasksDir, `${tmuxSession}.log`);
@@ -126,6 +145,22 @@ export async function spawnSession({
     await fs.rm(logFile, { force: true });
     await fs.rm(stateFile, { force: true });
     await fs.rm(`${stateFile}.watchdog`, { force: true });
+
+    // Pre-flight: ensure hooks are configured so the plugin can receive events.
+    const hooksOk = await checkHooksConfigured(workdir);
+    if (!hooksOk) {
+      return {
+        success: false,
+        tmuxSession,
+        sessionId,
+        runId: sessionId,
+        budgetMinutes,
+        workdir,
+        logFile,
+        stateFile,
+        error: `hooks not configured: ${HOOK_URL} not found in ~/.claude/settings.json, ${workdir}/.claude/settings.json, or ${workdir}/.claude/settings.local.json. Run claude_code_setup_hooks first.`,
+      };
+    }
 
     await exec(
       [

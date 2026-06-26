@@ -71,9 +71,15 @@ const plugin: OpenClawPluginDefinition = definePluginEntry({
     const taskReg = createTaskRegistry({
       enqueueSystemEvent: (text, opts) => {
         try {
-          return api.runtime.system.enqueueSystemEvent(text, opts);
+          const ok = api.runtime.system.enqueueSystemEvent(text, opts);
+          if (!ok) {
+            api.logger?.warn(
+              `claude-code: enqueueSystemEvent returned false contextKey=${opts.contextKey} sessionKey=${opts.sessionKey}`,
+            );
+          }
+          return ok;
         } catch (err) {
-          api.logger?.warn(`claude-code: enqueueSystemEvent failed: ${String(err)}`);
+          api.logger?.warn(`claude-code: enqueueSystemEvent threw: ${String(err)}`);
           return false;
         }
       },
@@ -93,6 +99,7 @@ const plugin: OpenClawPluginDefinition = definePluginEntry({
       store,
       config,
       taskRegistry: taskReg,
+      log: (text) => api.logger?.info?.(text),
       discoverSession: async (sessionId) => discoverSession({ sessionId }),
       sendKeys: async ({ tmuxSession, text, submit, keys }) => {
         const exists = await tmuxSessionExists(tmuxSession);
