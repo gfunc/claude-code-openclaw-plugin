@@ -6,6 +6,7 @@ import type {
   OpenClawPluginApi,
   OpenClawPluginDefinition,
 } from "openclaw/plugin-sdk/plugin-entry";
+import { dispatchGatewayMethod } from "openclaw/plugin-sdk/gateway-method-runtime";
 import { resolvePluginConfig } from "./config.js";
 import { discoverSession } from "./discovery.js";
 import { createSessionEventLogger } from "./event-log.js";
@@ -94,21 +95,45 @@ const plugin: OpenClawPluginDefinition = definePluginEntry({
       },
       log: (text) => api.logger?.info?.(text),
       requesterSessionKey: config.targetSessionKey,
-      onTerminalState: config.wecomWebhookUrl
-        ? ({ sessionId, label, state, text }) => {
-            const markdown = `## ${state === "FATAL" ? "⏰ Timed Out" : "✅ Completed"}: \`${label}\`\n> ${text.replace(/🚨 Claude Code session.*?\*\*/, "").replace(/\n> /g, "\n> ").slice(0, 2000)}`;
-            fetch(config.wecomWebhookUrl!, {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({
-                msgtype: "markdown",
-                markdown: { content: markdown },
-              }),
+      onTerminalState: ({ sessionId, label, state, text }) => {
+            const resultText = text.replace("🚨 Claude Code session", "Claude Code session");
+            // Primary: session resume — inject follow-up into the requester session
+            // so the agent can review results, make decisions, and reply to the user.
+            // Mirrors the exec-approval-followup pattern (bash-tools exec-approval-followup.ts).
+            dispatchGatewayMethod("agent", {
+              sessionKey: config.targetSessionKey,
+              message: [
+                "A background Claude Code session has completed.",
+                "Do not re-run the analysis.",
+                "If the task requires more steps, continue from this result before replying to the user.",
+                "Only ask the user for help if you are actually blocked.",
+                "",
+                "Exact completion details:",
+                resultText.slice(0, 4000),
+                "",
+                "Continue the task if needed, then reply to the user in a helpful way.",
+                "Share the key findings, recommendations, and any decisions needed.",
+              ].join("\n"),
             }).catch((err) => {
-              api.logger?.warn(`claude-code: wecom webhook failed: ${String(err)}`);
+              api.logger?.warn(`claude-code: session resume failed: ${String(err)}`);
             });
-          }
-        : undefined,
+
+            // Fallback: wecom webhook for push notification when session resume
+            // isn't available (matching sendDirectFollowupFallback pattern).
+            if (config.wecomWebhookUrl) {
+              const markdown = `## ${state === "FATAL" ? "⏰ Timed Out" : "✅ Completed"}: \`${label}\`\n> ${text.replace(/🚨 Claude Code session.*?\*\*/, "").slice(0, 2000)}`;
+              fetch(config.wecomWebhookUrl, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                  msgtype: "markdown",
+                  markdown: { content: markdown },
+                }),
+              }).catch((err) => {
+                api.logger?.warn(`claude-code: wecom webhook failed: ${String(err)}`);
+              });
+            }
+          },
     });
 
     const routes = createClaudeCodeRoutes({

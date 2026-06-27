@@ -22,6 +22,7 @@
   },
   "activation": { "onStartup": true },
   "contracts": {
+    "gatewayMethodDispatch": ["authenticated-request"],
     "tools": [
       "claude_code_status",
       "claude_code_spawn",
