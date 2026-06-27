@@ -86,3 +86,59 @@ describe("createSessionStore", () => {
     }
   });
 });
+
+describe("setNotifyContext", () => {
+  it("stores notifySessionKey and notifyDeliveryContext on the session", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "store-"));
+    const store = createSessionStore({ stateFileDir: dir });
+    await store.applyHook({
+      hook_event_name: "SessionStart",
+      session_id: "sid-x",
+    } as ClaudeCodeHookPayload);
+
+    store.setNotifyContext("sid-x", {
+      runId: "sid-x",
+      notifySessionKey: "agent:wecom:user-7",
+      notifyDeliveryContext: { channel: "wecom", to: "user-7", accountId: "ww1" },
+    });
+
+    const s = store.getState("sid-x")!;
+    expect(s.runId).toBe("sid-x");
+    expect(s.notifySessionKey).toBe("agent:wecom:user-7");
+    expect(s.notifyDeliveryContext).toEqual({
+      channel: "wecom", to: "user-7", accountId: "ww1",
+    });
+  });
+
+  it("is a no-op when sessionId is unknown", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "store-"));
+    const store = createSessionStore({ stateFileDir: dir });
+    expect(() => store.setNotifyContext("nope", {
+      runId: "nope",
+      notifySessionKey: "agent:main:main",
+    })).not.toThrow();
+    expect(store.getState("nope")).toBeUndefined();
+  });
+
+  it("persists notifySessionKey across loadFromDisk", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "store-"));
+    const a = createSessionStore({ stateFileDir: dir, flushDebounceMs: 0 });
+    await a.applyHook({
+      hook_event_name: "SessionStart",
+      session_id: "sid-roundtrip",
+    } as ClaudeCodeHookPayload);
+    a.setNotifyContext("sid-roundtrip", {
+      runId: "sid-roundtrip",
+      notifySessionKey: "agent:wecom:user-1",
+      notifyDeliveryContext: { channel: "wecom", to: "user-1" },
+    });
+    await a.dispose();  // flushes
+
+    const b = createSessionStore({ stateFileDir: dir });
+    const count = await b.loadFromDisk();
+    expect(count).toBeGreaterThanOrEqual(1);
+    const s = b.getState("sid-roundtrip")!;
+    expect(s.notifySessionKey).toBe("agent:wecom:user-1");
+    expect(s.notifyDeliveryContext?.channel).toBe("wecom");
+  });
+});

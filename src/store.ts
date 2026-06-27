@@ -3,7 +3,7 @@ import path from "node:path";
 import type { PluginConfig } from "./config.js";
 import type { DiscoveredSession } from "./discovery.js";
 import { formatHookLogLine, type SessionEventLogger } from "./event-log.js";
-import type { ClaudeCodeHookPayload, SessionState } from "./state.js";
+import type { ClaudeCodeHookPayload, DeliveryContext, SessionState } from "./state.js";
 import { applyHook as applyHookState, buildInitialState } from "./state.js";
 
 export type SessionStoreOptions = Pick<PluginConfig, "stateFileDir"> & {
@@ -131,17 +131,20 @@ export function createSessionStore(options: SessionStoreOptions) {
     return sessions.get(sessionId);
   }
 
-  function setRequesterContext(
+  function setNotifyContext(
     sessionId: string,
-    runId: string,
-    requesterSessionKey: string,
+    params: {
+      runId: string;
+      notifySessionKey: string;
+      notifyDeliveryContext?: DeliveryContext;
+    },
   ): void {
     const state = sessions.get(sessionId);
-    if (state) {
-      state.runId = runId;
-      state.requesterSessionKey = requesterSessionKey;
-      scheduleFlush();
-    }
+    if (!state) return;
+    state.runId = params.runId;
+    state.notifySessionKey = params.notifySessionKey;
+    state.notifyDeliveryContext = params.notifyDeliveryContext;
+    scheduleFlush();
   }
 
   function listStates(): SessionState[] {
@@ -161,6 +164,6 @@ export function createSessionStore(options: SessionStoreOptions) {
     listStates,
     loadFromDisk,
     dispose,
-    setRequesterContext,
+    setNotifyContext,
   };
 }
