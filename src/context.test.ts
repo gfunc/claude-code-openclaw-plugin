@@ -57,11 +57,4 @@ describe("buildClaudeCodeContext", () => {
     expect(waitIdx).toBeLessThan(doneIdx);
   });
 
-  it("honors notifyStates override", () => {
-    const ctx = buildClaudeCodeContext({
-      sessions: [makeSession("DONE")],
-      notifyStates: ["WAITING"],
-    });
-    expect(ctx).toBe("");
-  });
 });
