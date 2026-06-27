@@ -37,6 +37,15 @@ export async function setupAgent({
   const targetPath = configPath ?? DEFAULT_CONFIG_PATH;
   const id = agentId ?? DEFAULT_AGENT_ID;
 
+  if (!id.trim()) {
+    return {
+      success: false,
+      configPath: targetPath,
+      agentId: id,
+      error: "agentId must not be empty",
+    };
+  }
+
   let raw: string;
   try {
     raw = await fs.readFile(targetPath, "utf8");
@@ -169,28 +178,4 @@ export function createClaudeCodeSetupAgentTool(config?: SetupAgentConfig): AnyAg
       return jsonResult(result);
     },
   };
-}
-
-export async function handleSetupAgentRoute(
-  body: unknown,
-  config?: SetupAgentConfig,
-): Promise<{ status: number; body: unknown }> {
-  if (typeof body !== "object" || body === null || Array.isArray(body)) {
-    return { status: 400, body: { error: "invalid body" } };
-  }
-  const { agentId, primaryModel, fallbackModels } = body as Record<string, unknown>;
-  const result = await setupAgent({
-    configPath: config?.configPath,
-    agentId: typeof agentId === "string" ? agentId : undefined,
-    model:
-      typeof primaryModel === "string" || (Array.isArray(fallbackModels) && fallbackModels.length)
-        ? {
-            primary: typeof primaryModel === "string" ? primaryModel : undefined,
-            fallbacks: Array.isArray(fallbackModels)
-              ? fallbackModels.filter((m): m is string => typeof m === "string")
-              : undefined,
-          }
-        : undefined,
-  });
-  return { status: result.success ? 200 : 500, body: result };
 }

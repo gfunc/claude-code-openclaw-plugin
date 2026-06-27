@@ -107,6 +107,18 @@ describe("setupAgent", () => {
     expect(res.error ?? "").toContain("not valid JSON");
   });
 
+  it("creates agents.list when agents block exists without a list", async () => {
+    const cfg = await makeTmpConfig(JSON.stringify({ agents: {} }));
+    const res = await setupAgent({ configPath: cfg });
+    expect(res.success).toBe(true);
+    expect(res.added).toBe(true);
+
+    const after = JSON.parse(await fs.readFile(cfg, "utf8")) as {
+      agents: { list: Array<{ id: string }> };
+    };
+    expect(after.agents.list).toEqual([{ id: "cc-watcher" }]);
+  });
+
   it("refuses to overwrite non-object agents block", async () => {
     const cfg = await makeTmpConfig(JSON.stringify({ agents: 42 }));
     const res = await setupAgent({ configPath: cfg });
