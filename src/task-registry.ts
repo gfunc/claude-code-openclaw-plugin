@@ -5,6 +5,12 @@
 // transitions we enqueue an exec-completion event addressed at that session
 // (with channel hint) and request a wake heartbeat.
 //
+// contextKey uses "cron:" prefix so interval heartbeats (not just wakes) can
+// detect pending events. Without it the agent never sees them when the main
+// command lane is busy (getSize("main") > 0 blocks ALL wakes globally).
+// "task:" prefix would leave them invisible to interval heartbeats
+// (hasTaggedCronEvents=false → shouldInspectPendingEvents=false).
+//
 // Why exec-completion format for ALL notify states (not just DONE/FATAL):
 //   heartbeat-runner only generates a user-visible prompt when
 //   isExecCompletionEvent(text)===true — otherwise resolveHeartbeatRunPrompt
@@ -12,7 +18,7 @@
 //   WAITING/PERMISSION/etc. with code 0, the receiving LLM is prompted to
 //   "relay this background task update" and naturally responds.
 //
-// See: docs/openclaw-background-task-notification.md §3.1, §3.4.
+// See: docs/openclaw-background-task-notification.md §3.1, §3.3, §3.4.
 
 import type { DeliveryContext, SessionState } from "./state.js";
 
@@ -73,7 +79,7 @@ export function createTaskRegistry(deps: TaskRegistryDeps): TaskRegistry {
       const target = state.notifySessionKey ?? defaultNotifySessionKey;
       const agentId = target.split(":")[1] ?? "";
       const label = state.tmuxSession ?? state.sessionId;
-      const contextKey = `task:claude-code:${state.sessionId}`;
+      const contextKey = `cron:claude-code:${state.sessionId}`;
       const reason = `claude-code:${state.sessionId}:${state.state}`;
 
       const { verb, exitCode, emoji, mood } = describeState(state.state);
