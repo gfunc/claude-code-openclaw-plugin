@@ -74,8 +74,12 @@ export function createTaskRegistry(deps: TaskRegistryDeps): TaskRegistry {
       if (seenStates.has(key)) return;
       seenStates.add(key);
 
+      // Always route through the default session (cc-watcher). Per-session
+      // notifySessionKeys (e.g. agent:main:wecom:...) are unreliable because
+      // only the "default" session gets interval heartbeat turns; events
+      // enqueued to per-channel sessions are orphaned.
+      const target = defaultNotifySessionKey;
       const initiator = state.notifySessionKey ?? defaultNotifySessionKey;
-      const agentId = initiator.split(":")[1] ?? "";
       const label = state.tmuxSession ?? state.sessionId;
       const contextKey = `cron:claude-code:${state.sessionId}`;
       const reason = `claude-code:${state.sessionId}:${state.state}`;
@@ -90,21 +94,22 @@ export function createTaskRegistry(deps: TaskRegistryDeps): TaskRegistry {
       // cron-event "reminder" prompts.
       const text = `${emoji} Claude Code session \`${label}\` (initiator: ${initiator}) **${mood}**.${resultSuffix}`;
 
-      log?.(`claude-code: notify state=${state.state} sessionId=${state.sessionId} target=${initiator} contextKey=${contextKey}`);
+      log?.(`claude-code: notify state=${state.state} sessionId=${state.sessionId} target=${target} initiator=${initiator} contextKey=${contextKey}`);
 
       const enqOpts: { sessionKey: string; contextKey: string; deliveryContext?: DeliveryContext } = {
-        sessionKey: initiator,
+        sessionKey: target,
         contextKey,
       };
       if (state.notifyDeliveryContext) enqOpts.deliveryContext = state.notifyDeliveryContext;
 
       enqueueSystemEvent(text, enqOpts);
+      const targetAgentId = target.split(":")[1] ?? "";
       requestHeartbeatNow({
         source: "hook",
         intent: "immediate",
         reason,
-        sessionKey: initiator,
-        agentId,
+        sessionKey: target,
+        agentId: targetAgentId,
       });
     },
   };

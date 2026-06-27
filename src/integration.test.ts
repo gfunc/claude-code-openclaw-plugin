@@ -248,13 +248,13 @@ describe("hook → system-event queue (full integration)", () => {
     });
   });
 
-  it("routes notifications to caller's sessionKey when SessionState has it (per-caller path)", async () => {
+  it("routes all notifications to defaultNotifySessionKey hub", async () => {
     stateDir = await fs.mkdtemp(path.join(os.tmpdir(), "cc-plugin-e2e-"));
     // Pre-seed a SessionState file as if spawn had stored caller routing.
     // This bypasses the real spawn (which would launch tmux) and exercises
     // the integration target: hooks for a session whose store entry has
-    // notifySessionKey + notifyDeliveryContext must route there, NOT to the
-    // default. loadFromDisk picks this up at service start.
+    // notifySessionKey + notifyDeliveryContext. All notifications route to
+    // defaultNotifySessionKey (hub); loadFromDisk picks this up at service start.
     const sid = "e2e-wecom";
     const now = Date.now();
     await fs.writeFile(
@@ -299,27 +299,24 @@ describe("hook → system-event queue (full integration)", () => {
       mockRes(),
     );
 
-    // Routing must hit the caller's sessionKey, NOT the default agent:main:main.
-    const wecomEntries = peekSystemEventEntries("agent:wecom:user-99");
-    expect(wecomEntries).toHaveLength(1);
-    expect(wecomEntries[0].contextKey).toBe(`cron:claude-code:${sid}`);
-    expect(wecomEntries[0].text).toContain("WeCom user's task is done");
-    expect(wecomEntries[0].deliveryContext).toEqual({
+    // All notifications route to default hub (agent:main:main in this fixture).
+    const hubEntries = peekSystemEventEntries("agent:main:main");
+    expect(hubEntries).toHaveLength(1);
+    expect(hubEntries[0].contextKey).toBe(`cron:claude-code:${sid}`);
+    expect(hubEntries[0].text).toContain("WeCom user's task is done");
+    expect(hubEntries[0].deliveryContext).toEqual({
       channel: "wecom",
       to: "user-99",
       accountId: "ww-7",
     });
 
-    // Default session must NOT receive the event.
-    expect(peekSystemEventEntries("agent:main:main")).toHaveLength(0);
-
-    // Heartbeat wakes the caller's session.
+    // Heartbeat wakes the hub session (defaultNotifySessionKey).
     expect(heartbeats).toHaveLength(1);
     expect(heartbeats[0]).toMatchObject({
       source: "hook",
       intent: "immediate",
-      sessionKey: "agent:wecom:user-99",
-      agentId: "wecom",
+      sessionKey: "agent:main:main",
+      agentId: "main",
       reason: `claude-code:${sid}:DONE`,
     });
   });

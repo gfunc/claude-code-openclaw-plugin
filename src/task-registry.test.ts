@@ -30,7 +30,7 @@ describe("createTaskRegistry", () => {
   }
 
   describe("routing", () => {
-    it("uses state.notifySessionKey when set", () => {
+    it("routes to defaultNotifySessionKey (cc-watcher hub)", () => {
       const { enqueueSystemEvent, requestHeartbeatNow, reg } = setup();
       reg.onStateTransition(makeState({
         state: "DONE",
@@ -38,10 +38,10 @@ describe("createTaskRegistry", () => {
       }));
       expect(enqueueSystemEvent).toHaveBeenCalledWith(
         expect.any(String),
-        expect.objectContaining({ sessionKey: "agent:wecom:user-1" }),
+        expect.objectContaining({ sessionKey: defaultNotifySessionKey }),
       );
       expect(requestHeartbeatNow).toHaveBeenCalledWith(
-        expect.objectContaining({ sessionKey: "agent:wecom:user-1", agentId: "wecom" }),
+        expect.objectContaining({ sessionKey: defaultNotifySessionKey, agentId: "main" }),
       );
     });
 
