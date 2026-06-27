@@ -107,7 +107,7 @@ export function createTaskRegistry(deps: TaskRegistryDeps): TaskRegistry {
       enqueueSystemEvent(text, enqOpts);
       const targetAgentId = target.split(":")[1] ?? "";
       requestHeartbeatNow({
-        source: "hook",
+        source: "exec-event",
         intent: "immediate",
         reason,
         sessionKey: target,

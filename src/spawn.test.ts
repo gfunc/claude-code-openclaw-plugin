@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { spawnSession, createClaudeCodeSpawnTool } from "./spawn.js";
 import type { SessionStore } from "./store.js";
 
@@ -138,6 +141,40 @@ describe("claude_code_spawn tool", () => {
       notifySessionKey: "agent:wecom:user-1",
       notifyDeliveryContext: { channel: "wecom", to: "user-1" },
     });
+  });
+
+  it("writes a notify sidecar file when stateFileDir is provided", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "spawn-sidecar-"));
+    const exec = vi.fn().mockResolvedValue({ code: 0, stdout: "", stderr: "" });
+
+    try {
+      const result = await spawnSession({
+        tmuxSession: "cc-sidecar",
+        task: "do stuff",
+        workdir: "/tmp",
+        exec,
+        writeState: vi.fn(),
+        startWatchdog: vi.fn(),
+        uuid: () => "sid-sidecar",
+        sleepMs: 0,
+        stateFileDir: dir,
+        notifySessionKey: "agent:main:main",
+        notifyDeliveryContext: { channel: "wecom", to: "wecom:A205820" },
+        defaultNotifySessionKey: "agent:cc-watcher:main",
+        checkHooksConfigured: async () => true,
+      });
+
+      expect(result.success).toBe(true);
+      const sidecarPath = path.join(dir, "sid-sidecar.notify.json");
+      const content = JSON.parse(await fs.readFile(sidecarPath, "utf8"));
+      expect(content).toEqual({
+        runId: "sid-sidecar",
+        notifySessionKey: "agent:main:main",
+        notifyDeliveryContext: { channel: "wecom", to: "wecom:A205820" },
+      });
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("falls back to defaultNotifySessionKey when notifySessionKey is omitted", async () => {

@@ -17,6 +17,7 @@ import { HOOK_URL } from "./setup-hooks.js";
 export type SpawnDeps = {
   exec?: ExecFn;
   tasksDir?: string;
+  stateFileDir?: string;
   writeState?: (statePath: string, line: string) => Promise<void>;
   startWatchdog?: (statePath: string, sessionId: string, tmuxSession: string, budgetMinutes: number) => Promise<void>;
   uuid?: () => string;
@@ -119,6 +120,7 @@ export async function spawnSession({
   notifySessionKey,
   notifyDeliveryContext,
   defaultNotifySessionKey,
+  stateFileDir,
   checkHooksConfigured = defaultCheckHooksConfigured,
 }: {
   tmuxSession: string;
@@ -141,6 +143,41 @@ export async function spawnSession({
   const sessionId = uuid();
   const logFile = path.join(tasksDir, `${tmuxSession}.log`);
   const stateFile = path.join(tasksDir, `${tmuxSession}.state`);
+  const sidecarFile = stateFileDir
+    ? path.join(stateFileDir, `${sessionId}.notify.json`)
+    : undefined;
+
+  // Capture the caller's notify routing BEFORE launching tmux. Hooks can
+  // arrive while we are still awaiting sleeps/key sends, and we want the
+  // very first hook to attach the notify context.
+  const resolvedNotifyKey = notifySessionKey ?? defaultNotifySessionKey;
+  if (store && resolvedNotifyKey) {
+    store.setNotifyContext(sessionId, {
+      runId: sessionId,
+      notifySessionKey: resolvedNotifyKey,
+      notifyDeliveryContext,
+    });
+  }
+  if (sidecarFile && resolvedNotifyKey) {
+    try {
+      await fs.mkdir(stateFileDir!, { recursive: true });
+      await fs.writeFile(
+        sidecarFile,
+        JSON.stringify(
+          {
+            runId: sessionId,
+            notifySessionKey: resolvedNotifyKey,
+            notifyDeliveryContext,
+          },
+          null,
+          2,
+        ) + "\n",
+        "utf8",
+      );
+    } catch {
+      // sidecar is best-effort; disk failures are swallowed so spawn can continue
+    }
+  }
 
   try {
     // These values are interpolated into shell command strings (tmux
@@ -230,17 +267,6 @@ export async function spawnSession({
     const stateLine = `RUNNING ${Date.now() / 1000 | 0} budget=${budgetMinutes}min workdir=${workdir} session_id=${sessionId}\n`;
     await writeState(stateFile, stateLine);
 
-    // Capture the caller's notify routing so subsequent state changes
-    // (WAITING, DONE, etc.) can be routed back to the right OpenClaw session.
-    const resolvedNotifyKey = notifySessionKey ?? defaultNotifySessionKey;
-    if (store && resolvedNotifyKey) {
-      store.setNotifyContext(sessionId, {
-        runId: sessionId,
-        notifySessionKey: resolvedNotifyKey,
-        notifyDeliveryContext,
-      });
-    }
-
     await startWatchdog(stateFile, sessionId, tmuxSession, budgetMinutes);
 
     return {
@@ -274,6 +300,7 @@ export function createClaudeCodeSpawnTool(config?: {
   notifySessionKey?: string;
   notifyDeliveryContext?: DeliveryContext;
   defaultNotifySessionKey?: string;
+  stateFileDir?: string;
 }): AnyAgentTool {
   return {
     label: "Claude Code Spawn",
@@ -303,6 +330,7 @@ export function createClaudeCodeSpawnTool(config?: {
         notifySessionKey: config?.notifySessionKey,
         notifyDeliveryContext: config?.notifyDeliveryContext,
         defaultNotifySessionKey: config?.defaultNotifySessionKey,
+        stateFileDir: config?.stateFileDir,
       });
       return jsonResult(result);
     },
@@ -315,6 +343,7 @@ export async function handleSpawnRoute(
     permissionMode?: ClaudePermissionMode;
     store?: SessionStore;
     defaultNotifySessionKey?: string;
+    stateFileDir?: string;
   },
 ): Promise<{ status: number; body: unknown }> {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
@@ -344,6 +373,7 @@ export async function handleSpawnRoute(
         ? (notifyDeliveryContext as DeliveryContext)
         : undefined,
     defaultNotifySessionKey: config?.defaultNotifySessionKey,
+    stateFileDir: config?.stateFileDir,
   });
   return { status: result.success ? 200 : 500, body: result };
 }

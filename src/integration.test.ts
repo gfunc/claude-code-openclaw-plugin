@@ -166,7 +166,7 @@ describe("hook → system-event queue (full integration)", () => {
 
     expect(heartbeats).toHaveLength(1);
     expect(heartbeats[0]).toMatchObject({
-      source: "hook",
+      source: "exec-event",
       intent: "immediate",
       sessionKey: "agent:main:main",
       reason: "claude-code:e2e-real-3:DONE",
@@ -221,7 +221,7 @@ describe("hook → system-event queue (full integration)", () => {
     expect(entries[0].text).toContain("needs attention");
     expect(heartbeats).toHaveLength(1); // intermediate states wake too
     expect(heartbeats[0]).toMatchObject({
-      source: "hook",
+      source: "exec-event",
       intent: "immediate",
       sessionKey: "agent:main:main",
       reason: `claude-code:${sid}:WAITING`,
@@ -241,7 +241,7 @@ describe("hook → system-event queue (full integration)", () => {
     if (doneEntry) expect(doneEntry.text).toContain("all done");
     expect(heartbeats).toHaveLength(2); // WAITING wake + DONE wake
     expect(heartbeats[1]).toMatchObject({
-      source: "hook",
+      source: "exec-event",
       intent: "immediate",
       sessionKey: "agent:main:main",
       reason: `claude-code:${sid}:DONE`,
@@ -313,7 +313,7 @@ describe("hook → system-event queue (full integration)", () => {
     // Heartbeat wakes the hub session (defaultNotifySessionKey).
     expect(heartbeats).toHaveLength(1);
     expect(heartbeats[0]).toMatchObject({
-      source: "hook",
+      source: "exec-event",
       intent: "immediate",
       sessionKey: "agent:main:main",
       agentId: "main",
@@ -356,7 +356,7 @@ describe("hook → system-event queue (full integration)", () => {
 
     expect(heartbeats).toHaveLength(1);
     expect(heartbeats[0]).toMatchObject({
-      source: "hook",
+      source: "exec-event",
       intent: "immediate",
       sessionKey: "agent:notifications:claude-code",
       agentId: "notifications",

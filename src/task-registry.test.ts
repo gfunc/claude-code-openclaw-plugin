@@ -41,7 +41,7 @@ describe("createTaskRegistry", () => {
         expect.objectContaining({ sessionKey: defaultNotifySessionKey }),
       );
       expect(requestHeartbeatNow).toHaveBeenCalledWith(
-        expect.objectContaining({ sessionKey: defaultNotifySessionKey, agentId: "main" }),
+        expect.objectContaining({ sessionKey: defaultNotifySessionKey, agentId: "main", source: "exec-event" }),
       );
     });
 
@@ -53,7 +53,7 @@ describe("createTaskRegistry", () => {
         expect.objectContaining({ sessionKey: defaultNotifySessionKey }),
       );
       expect(requestHeartbeatNow).toHaveBeenCalledWith(
-        expect.objectContaining({ sessionKey: defaultNotifySessionKey, agentId: "main" }),
+        expect.objectContaining({ sessionKey: defaultNotifySessionKey, agentId: "main", source: "exec-event" }),
       );
     });
 

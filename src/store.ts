@@ -33,6 +33,40 @@ export function createSessionStore(options: SessionStoreOptions) {
     return path.join(stateDir, `${sessionId}.json`);
   }
 
+  function notifySidecarPath(sessionId: string): string {
+    return path.join(stateDir, `${sessionId}.notify.json`);
+  }
+
+  async function readNotifySidecar(
+    sessionId: string,
+  ): Promise<
+    | {
+        runId: string;
+        notifySessionKey: string;
+        notifyDeliveryContext?: DeliveryContext;
+      }
+    | undefined
+  > {
+    try {
+      const content = await fs.readFile(notifySidecarPath(sessionId), "utf8");
+      const parsed = JSON.parse(content) as unknown;
+      if (
+        parsed &&
+        typeof parsed === "object" &&
+        typeof (parsed as Record<string, unknown>).notifySessionKey === "string"
+      ) {
+        return parsed as {
+          runId: string;
+          notifySessionKey: string;
+          notifyDeliveryContext?: DeliveryContext;
+        };
+      }
+    } catch {
+      // sidecar missing or unreadable
+    }
+    return undefined;
+  }
+
   async function flush(): Promise<void> {
     await fs.mkdir(stateDir, { recursive: true });
     await Promise.all(
@@ -75,14 +109,35 @@ export function createSessionStore(options: SessionStoreOptions) {
       }
       const pending = pendingNotifyContext.get(payload.session_id);
       if (pending) {
+        eventLogger?.log(
+          payload.session_id,
+          `APPLY_PENDING_NOTIFY notifySessionKey=${pending.notifySessionKey} deliveryContext=${pending.notifyDeliveryContext ? JSON.stringify(pending.notifyDeliveryContext) : "undefined"}`,
+        );
         state.runId = pending.runId;
         state.notifySessionKey = pending.notifySessionKey;
         state.notifyDeliveryContext = pending.notifyDeliveryContext;
         pendingNotifyContext.delete(payload.session_id);
+      } else if (!state.notifySessionKey) {
+        const sidecar = await readNotifySidecar(payload.session_id);
+        if (sidecar) {
+          eventLogger?.log(
+            payload.session_id,
+            `APPLY_SIDECAR_NOTIFY notifySessionKey=${sidecar.notifySessionKey} deliveryContext=${sidecar.notifyDeliveryContext ? JSON.stringify(sidecar.notifyDeliveryContext) : "undefined"}`,
+          );
+          state.runId = sidecar.runId;
+          state.notifySessionKey = sidecar.notifySessionKey;
+          state.notifyDeliveryContext = sidecar.notifyDeliveryContext;
+        }
       }
+      // Best-effort cleanup: the sidecar is a one-time routing token.
+      await fs.rm(notifySidecarPath(payload.session_id), { force: true }).catch(() => {});
       sessions.set(payload.session_id, state);
     } else {
       state = applyHookState(state, payload);
+      eventLogger?.log(
+        payload.session_id,
+        `APPLY_HOOK_UPDATE notifySessionKey=${state.notifySessionKey ?? "undefined"} deliveryContext=${state.notifyDeliveryContext ? JSON.stringify(state.notifyDeliveryContext) : "undefined"}`,
+      );
       sessions.set(payload.session_id, state);
     }
     if (eventLogger) {
@@ -154,6 +209,10 @@ export function createSessionStore(options: SessionStoreOptions) {
       notifyDeliveryContext?: DeliveryContext;
     },
   ): void {
+    eventLogger?.log(
+      sessionId,
+      `SET_NOTIFY_CONTEXT runId=${params.runId} notifySessionKey=${params.notifySessionKey} deliveryContext=${params.notifyDeliveryContext ? JSON.stringify(params.notifyDeliveryContext) : "undefined"}`,
+    );
     const state = sessions.get(sessionId);
     if (state) {
       state.runId = params.runId;

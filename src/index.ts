@@ -83,6 +83,9 @@ const plugin: OpenClawPluginDefinition = definePluginEntry({
         try {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           api.runtime.system.requestHeartbeatNow(opts as any);
+          api.logger?.info?.(
+            `claude-code: requestedHeartbeat source=${opts.source} intent=${opts.intent} sessionKey=${opts.sessionKey} agentId=${opts.agentId ?? ""} reason=${opts.reason}`,
+          );
         } catch (err) {
           api.logger?.warn(`claude-code: requestHeartbeatNow failed: ${String(err)}`);
         }
@@ -138,15 +141,19 @@ const plugin: OpenClawPluginDefinition = definePluginEntry({
     // For tools that don't need routing (status, stop, read, send, restore,
     // setup-hooks), the factory ignores ctx — uniform shape keeps the call
     // site clean.
-    api.registerTool((ctx) =>
-      createClaudeCodeSpawnTool({
+    api.registerTool((ctx) => {
+      api.logger?.info?.(
+        `claude-code: spawn-tool ctx sessionKey=${ctx.sessionKey ?? "undefined"} deliveryContext=${ctx.deliveryContext ? JSON.stringify(ctx.deliveryContext) : "undefined"}`,
+      );
+      return createClaudeCodeSpawnTool({
         permissionMode: config.permissionMode,
         store,
         notifySessionKey: ctx.sessionKey,
         notifyDeliveryContext: ctx.deliveryContext,
         defaultNotifySessionKey: config.defaultNotifySessionKey,
-      }),
-    );
+        stateFileDir: config.stateFileDir,
+      });
+    });
     api.registerTool(() => createClaudeCodeStatusTool(store));
     api.registerTool(() => createClaudeCodeStopTool());
     api.registerTool(() => createClaudeCodeRestoreTool({ permissionMode: config.permissionMode }));

@@ -166,6 +166,32 @@ describe("setNotifyContext", () => {
     expect(s.runId).toBe("sid-late");
   });
 
+  it("falls back to notify sidecar file when no pending context exists", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "store-"));
+    const store = createSessionStore({ stateFileDir: dir });
+
+    await fs.writeFile(
+      path.join(dir, "sid-sidecar.notify.json"),
+      JSON.stringify({
+        runId: "sid-sidecar",
+        notifySessionKey: "agent:wecom:user-99",
+        notifyDeliveryContext: { channel: "wecom", to: "user-99" },
+      }),
+      "utf8",
+    );
+
+    await store.applyHook({
+      hook_event_name: "SessionStart",
+      session_id: "sid-sidecar",
+    } as ClaudeCodeHookPayload);
+
+    const s = store.getState("sid-sidecar")!;
+    expect(s.notifySessionKey).toBe("agent:wecom:user-99");
+    expect(s.notifyDeliveryContext).toEqual({ channel: "wecom", to: "user-99" });
+    expect(s.runId).toBe("sid-sidecar");
+    expect(await fs.access(path.join(dir, "sid-sidecar.notify.json")).then(() => true).catch(() => false)).toBe(false);
+  });
+
   it("clears the pending routing entry after absorption (no leak across re-creates)", async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "store-"));
     const store = createSessionStore({ stateFileDir: dir });

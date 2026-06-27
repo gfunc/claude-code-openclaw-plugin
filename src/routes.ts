@@ -141,6 +141,7 @@ export function createClaudeCodeRoutes({
         permissionMode: config.permissionMode,
         store,
         defaultNotifySessionKey: config.defaultNotifySessionKey,
+        stateFileDir: config.stateFileDir,
       });
       sendJson(res, status, resp);
     } catch (err) {
