@@ -27,23 +27,11 @@ export const pluginConfigSchema = z.object({
   routePrefix: z.string().default("/claude-code"),
   eventTypes: z.array(z.string()).default(["*"]),
   stateFileDir: z.string().default("~/.cache/claude-code-hooks"),
-  notifyStates: z.array(ClaudeCodeState).default([
-    "WAITING",
-    "QUESTION",
-    "PERMISSION",
-    "ERROR",
-    "DONE",
-  ]),
   sendKeysRateLimitPerMinute: z.number().int().positive().default(10),
   sessionTimeoutSeconds: z.number().int().positive().default(300),
-  targetSessionKey: z.string().default("agent:main:main"),
+  defaultNotifySessionKey: z.string().default("agent:cc-watcher:main"),
   permissionMode: ClaudePermissionMode.default("bypassPermissions"),
-  // Append a line per received hook to <stateFileDir>/<sessionId>.log.
-  // Off by default; logs are not rotated.
   debugLog: z.boolean().default(false),
-  // If set, POST completion notifications to this WeCom webhook URL.
-  // Bypasses OpenClaw's internal heartbeat system for reliable delivery.
-  wecomWebhookUrl: z.string().optional(),
 });
 
 export type PluginConfig = z.infer<typeof pluginConfigSchema>;

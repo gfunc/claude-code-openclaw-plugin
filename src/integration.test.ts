@@ -39,8 +39,7 @@ function mockRes(): ServerResponse {
 
 function buildApi(opts: {
   stateDir: string;
-  targetSessionKey?: string;
-  notifyStates?: string[];
+  defaultNotifySessionKey?: string;
   heartbeats?: Array<Record<string, unknown>>;
 }): {
   api: Record<string, unknown>;
@@ -49,17 +48,18 @@ function buildApi(opts: {
     handler: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
   }>;
   heartbeats: Array<Record<string, unknown>>;
+  waitForServices: () => Promise<void>;
 } {
   const routes: Array<{
     path: string;
     handler: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
   }> = [];
   const heartbeats = opts.heartbeats ?? [];
+  const startPromises: Array<Promise<void>> = [];
 
   const api = {
     pluginConfig: {
-      targetSessionKey: opts.targetSessionKey ?? "agent:main:main",
-      notifyStates: opts.notifyStates ?? ["WAITING", "QUESTION", "PERMISSION", "ERROR", "DONE"],
+      defaultNotifySessionKey: opts.defaultNotifySessionKey ?? "agent:main:main",
       stateFileDir: opts.stateDir,
     },
     runtime: {
@@ -80,13 +80,21 @@ function buildApi(opts: {
     registerTool: () => {},
     registerHook: () => {},
     registerService: (svc: { id: string; start: () => Promise<void> }) => {
-      // Auto-start registered services so the timeout service doesn't block.
-      svc.start().catch(() => {});
+      // Auto-start registered services so the timeout service doesn't block,
+      // and track the start promise so tests can await disk hydration.
+      startPromises.push(svc.start().catch(() => {}));
     },
     logger: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} },
   };
 
-  return { api, routes, heartbeats };
+  return {
+    api,
+    routes,
+    heartbeats,
+    waitForServices: async () => {
+      await Promise.all(startPromises);
+    },
+  };
 }
 
 describe("hook → system-event queue (full integration)", () => {
@@ -204,13 +212,20 @@ describe("hook → system-event queue (full integration)", () => {
     await post({ hook_event_name: "PostToolUse", session_id: sid, tool_name: "Bash" });
     expect(peekSystemEventEntries("agent:main:main")).toHaveLength(0);
 
-    // Stop → WAITING → one notify event, no wake
+    // Stop → WAITING → one notify event AND wake (per-caller design: all
+    // notify states wake, including intermediates).
     await post({ hook_event_name: "Stop", session_id: sid });
     let entries = peekSystemEventEntries("agent:main:main");
     expect(entries).toHaveLength(1);
     expect(entries[0].contextKey).toBe(`task:claude-code:${sid}`);
     expect(entries[0].text).toContain("needs attention");
-    expect(heartbeats).toHaveLength(0); // intermediate states don't wake
+    expect(heartbeats).toHaveLength(1); // intermediate states wake too
+    expect(heartbeats[0]).toMatchObject({
+      source: "hook",
+      intent: "immediate",
+      sessionKey: "agent:main:main",
+      reason: `claude-code:${sid}:WAITING`,
+    });
 
     // SessionEnd → DONE → terminal event + wake
     await post({
@@ -224,6 +239,131 @@ describe("hook → system-event queue (full integration)", () => {
     );
     expect(doneEntry).toBeDefined();
     if (doneEntry) expect(doneEntry.text).toContain("all done");
-    expect(heartbeats).toHaveLength(1); // only the DONE wake
+    expect(heartbeats).toHaveLength(2); // WAITING wake + DONE wake
+    expect(heartbeats[1]).toMatchObject({
+      source: "hook",
+      intent: "immediate",
+      sessionKey: "agent:main:main",
+      reason: `claude-code:${sid}:DONE`,
+    });
+  });
+
+  it("routes notifications to caller's sessionKey when SessionState has it (per-caller path)", async () => {
+    stateDir = await fs.mkdtemp(path.join(os.tmpdir(), "cc-plugin-e2e-"));
+    // Pre-seed a SessionState file as if spawn had stored caller routing.
+    // This bypasses the real spawn (which would launch tmux) and exercises
+    // the integration target: hooks for a session whose store entry has
+    // notifySessionKey + notifyDeliveryContext must route there, NOT to the
+    // default. loadFromDisk picks this up at service start.
+    const sid = "e2e-wecom";
+    const now = Date.now();
+    await fs.writeFile(
+      path.join(stateDir, `${sid}.json`),
+      JSON.stringify({
+        sessionId: sid,
+        state: "WORKING",
+        lastHookEvent: "SessionStart",
+        lastHookPayload: { hook_event_name: "SessionStart", session_id: sid },
+        stateSince: now,
+        lastSeenAt: now,
+        history: [],
+        runId: sid,
+        notifySessionKey: "agent:wecom:user-99",
+        notifyDeliveryContext: { channel: "wecom", to: "user-99", accountId: "ww-7" },
+      }),
+      "utf8",
+    );
+
+    const heartbeats: Array<Record<string, unknown>> = [];
+    const { api, routes, waitForServices } = buildApi({ stateDir, heartbeats });
+
+    entry.register!(api as never);
+    // Wait for the timeout service to finish loadFromDisk hydration.
+    await waitForServices();
+
+    const hookRoute = routes.find((r) => r.path === "/claude-code/hook");
+    expect(hookRoute).toBeDefined();
+
+    // Verify hydration: the store should have loaded notifySessionKey from disk.
+    // (peek default before firing — should be empty, with routing now applied.)
+    expect(peekSystemEventEntries("agent:main:main")).toHaveLength(0);
+    expect(peekSystemEventEntries("agent:wecom:user-99")).toHaveLength(0);
+
+    // Fire SessionEnd → DONE.
+    await hookRoute!.handler(
+      mockReq({
+        hook_event_name: "SessionEnd",
+        session_id: sid,
+        last_assistant_message: "WeCom user's task is done",
+      }),
+      mockRes(),
+    );
+
+    // Routing must hit the caller's sessionKey, NOT the default agent:main:main.
+    const wecomEntries = peekSystemEventEntries("agent:wecom:user-99");
+    expect(wecomEntries).toHaveLength(1);
+    expect(wecomEntries[0].contextKey).toBe(`task:claude-code:${sid}`);
+    expect(wecomEntries[0].text).toContain("WeCom user's task is done");
+    expect(wecomEntries[0].deliveryContext).toEqual({
+      channel: "wecom",
+      to: "user-99",
+      accountId: "ww-7",
+    });
+
+    // Default session must NOT receive the event.
+    expect(peekSystemEventEntries("agent:main:main")).toHaveLength(0);
+
+    // Heartbeat wakes the caller's session.
+    expect(heartbeats).toHaveLength(1);
+    expect(heartbeats[0]).toMatchObject({
+      source: "hook",
+      intent: "immediate",
+      sessionKey: "agent:wecom:user-99",
+      agentId: "wecom",
+      reason: `claude-code:${sid}:DONE`,
+    });
+  });
+
+  it("falls back to defaultNotifySessionKey when SessionState has no notify routing", async () => {
+    stateDir = await fs.mkdtemp(path.join(os.tmpdir(), "cc-plugin-e2e-"));
+    const heartbeats: Array<Record<string, unknown>> = [];
+    const { api, routes, waitForServices } = buildApi({
+      stateDir,
+      defaultNotifySessionKey: "agent:notifications:claude-code",
+      heartbeats,
+    });
+
+    entry.register!(api as never);
+    await waitForServices();
+    const hookRoute = routes.find((r) => r.path === "/claude-code/hook");
+    expect(hookRoute).toBeDefined();
+
+    // Fire a hook for a never-spawned session — no pre-seeded state file. The
+    // session materializes on first hook with no notify routing → falls back to default.
+    await hookRoute!.handler(
+      mockReq({
+        hook_event_name: "SessionEnd",
+        session_id: "e2e-default-fallback",
+        last_assistant_message: "anonymous task done",
+      }),
+      mockRes(),
+    );
+
+    const entries = peekSystemEventEntries("agent:notifications:claude-code");
+    expect(entries).toHaveLength(1);
+    expect(entries[0].contextKey).toBe("task:claude-code:e2e-default-fallback");
+    expect(entries[0].deliveryContext).toBeUndefined();
+
+    // Default test fixture's "agent:main:main" must not receive this event.
+    expect(peekSystemEventEntries("agent:main:main")).toHaveLength(0);
+
+    expect(heartbeats).toHaveLength(1);
+    expect(heartbeats[0]).toMatchObject({
+      source: "hook",
+      intent: "immediate",
+      sessionKey: "agent:notifications:claude-code",
+      agentId: "notifications",
+      reason: "claude-code:e2e-default-fallback:DONE",
+    });
   });
 });

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { spawnSession, createClaudeCodeSpawnTool } from "./spawn.js";
+import type { SessionStore } from "./store.js";
 
 describe("claude_code_spawn tool", () => {
   it("spawns a session with expected tmux commands", async () => {
@@ -108,5 +109,76 @@ describe("claude_code_spawn tool", () => {
     });
     expect(result.success).toBe(false);
     expect(result.error).toContain("did not start");
+  });
+
+  it("calls store.setNotifyContext with notifySessionKey + deliveryContext when provided", async () => {
+    const setNotifyContext = vi.fn();
+    const fakeStore = { setNotifyContext } as unknown as SessionStore;
+    const exec = vi.fn().mockResolvedValue({ code: 0, stdout: "", stderr: "" });
+
+    const result = await spawnSession({
+      tmuxSession: "cc-test",
+      task: "do stuff",
+      workdir: "/tmp",
+      exec,
+      writeState: vi.fn(),
+      startWatchdog: vi.fn(),
+      uuid: () => "sid-fixed",
+      sleepMs: 0,
+      store: fakeStore,
+      notifySessionKey: "agent:wecom:user-1",
+      notifyDeliveryContext: { channel: "wecom", to: "user-1" },
+      defaultNotifySessionKey: "agent:main:main",
+      checkHooksConfigured: async () => true,
+    });
+
+    expect(result.success).toBe(true);
+    expect(setNotifyContext).toHaveBeenCalledWith("sid-fixed", {
+      runId: "sid-fixed",
+      notifySessionKey: "agent:wecom:user-1",
+      notifyDeliveryContext: { channel: "wecom", to: "user-1" },
+    });
+  });
+
+  it("falls back to defaultNotifySessionKey when notifySessionKey is omitted", async () => {
+    const setNotifyContext = vi.fn();
+    const fakeStore = { setNotifyContext } as unknown as SessionStore;
+    const exec = vi.fn().mockResolvedValue({ code: 0, stdout: "", stderr: "" });
+
+    await spawnSession({
+      tmuxSession: "cc-test-2",
+      task: "do stuff",
+      workdir: "/tmp",
+      exec,
+      writeState: vi.fn(),
+      startWatchdog: vi.fn(),
+      uuid: () => "sid-fixed-2",
+      sleepMs: 0,
+      store: fakeStore,
+      defaultNotifySessionKey: "agent:notifications:claude-code",
+      checkHooksConfigured: async () => true,
+    });
+
+    expect(setNotifyContext).toHaveBeenCalledWith("sid-fixed-2", {
+      runId: "sid-fixed-2",
+      notifySessionKey: "agent:notifications:claude-code",
+      notifyDeliveryContext: undefined,
+    });
+  });
+
+  it("does not call setNotifyContext when store is absent", async () => {
+    const exec = vi.fn().mockResolvedValue({ code: 0, stdout: "", stderr: "" });
+    const result = await spawnSession({
+      tmuxSession: "cc-no-store",
+      task: "do stuff",
+      workdir: "/tmp",
+      exec,
+      writeState: vi.fn(),
+      startWatchdog: vi.fn(),
+      uuid: () => "sid-no-store",
+      sleepMs: 0,
+      checkHooksConfigured: async () => true,
+    });
+    expect(result.success).toBe(true);
   });
 });

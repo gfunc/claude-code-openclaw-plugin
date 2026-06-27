@@ -3,7 +3,7 @@ import path from "node:path";
 import type { PluginConfig } from "./config.js";
 import type { DiscoveredSession } from "./discovery.js";
 import { formatHookLogLine, type SessionEventLogger } from "./event-log.js";
-import type { ClaudeCodeHookPayload, SessionState } from "./state.js";
+import type { ClaudeCodeHookPayload, DeliveryContext, SessionState } from "./state.js";
 import { applyHook as applyHookState, buildInitialState } from "./state.js";
 
 export type SessionStoreOptions = Pick<PluginConfig, "stateFileDir"> & {
@@ -18,6 +18,14 @@ export function createSessionStore(options: SessionStoreOptions) {
   const flushDebounceMs = options.flushDebounceMs ?? 250;
   const eventLogger = options.eventLogger;
   const sessions = new Map<string, SessionState>();
+  const pendingNotifyContext = new Map<
+    string,
+    {
+      runId: string;
+      notifySessionKey: string;
+      notifyDeliveryContext?: DeliveryContext;
+    }
+  >();
   let flushTimer: ReturnType<typeof setTimeout> | undefined;
   let disposed = false;
 
@@ -64,6 +72,13 @@ export function createSessionStore(options: SessionStoreOptions) {
         if (found.budgetMinutes) {
           state.budgetDeadline = Date.now() + found.budgetMinutes * 60_000;
         }
+      }
+      const pending = pendingNotifyContext.get(payload.session_id);
+      if (pending) {
+        state.runId = pending.runId;
+        state.notifySessionKey = pending.notifySessionKey;
+        state.notifyDeliveryContext = pending.notifyDeliveryContext;
+        pendingNotifyContext.delete(payload.session_id);
       }
       sessions.set(payload.session_id, state);
     } else {
@@ -131,16 +146,22 @@ export function createSessionStore(options: SessionStoreOptions) {
     return sessions.get(sessionId);
   }
 
-  function setRequesterContext(
+  function setNotifyContext(
     sessionId: string,
-    runId: string,
-    requesterSessionKey: string,
+    params: {
+      runId: string;
+      notifySessionKey: string;
+      notifyDeliveryContext?: DeliveryContext;
+    },
   ): void {
     const state = sessions.get(sessionId);
     if (state) {
-      state.runId = runId;
-      state.requesterSessionKey = requesterSessionKey;
+      state.runId = params.runId;
+      state.notifySessionKey = params.notifySessionKey;
+      state.notifyDeliveryContext = params.notifyDeliveryContext;
       scheduleFlush();
+    } else {
+      pendingNotifyContext.set(sessionId, params);
     }
   }
 
@@ -161,6 +182,6 @@ export function createSessionStore(options: SessionStoreOptions) {
     listStates,
     loadFromDisk,
     dispose,
-    setRequesterContext,
+    setNotifyContext,
   };
 }

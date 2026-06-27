@@ -20,6 +20,7 @@ import { createClaudeCodeRestoreTool } from "./restore.js";
 import { createClaudeCodeSendTool } from "./send.js";
 import { createClaudeCodeReadTool } from "./read.js";
 import { createClaudeCodeSetupHooksTool } from "./setup-hooks.js";
+import { createClaudeCodeSetupAgentTool } from "./setup-agent.js";
 import { createTaskRegistry } from "./task-registry.js";
 
 const pluginConfigJsonSchema = {
@@ -33,21 +34,15 @@ const pluginConfigJsonSchema = {
       default: ["*"],
     },
     stateFileDir: { type: "string", default: "~/.cache/claude-code-hooks" },
-    notifyStates: {
-      type: "array",
-      items: { type: "string" },
-      default: ["WAITING", "QUESTION", "PERMISSION", "ERROR", "DONE"],
-    },
     sendKeysRateLimitPerMinute: { type: "number", default: 10 },
     sessionTimeoutSeconds: { type: "number", default: 300 },
-    targetSessionKey: { type: "string", default: "agent:main:main" },
+    defaultNotifySessionKey: { type: "string", default: "agent:cc-watcher:main" },
     permissionMode: {
       type: "string",
       enum: ["default", "acceptEdits", "plan", "bypassPermissions"],
       default: "bypassPermissions",
     },
     debugLog: { type: "boolean", default: false },
-    wecomWebhookUrl: { type: "string" },
   },
   required: [],
 } as const;
@@ -93,22 +88,7 @@ const plugin: OpenClawPluginDefinition = definePluginEntry({
         }
       },
       log: (text) => api.logger?.info?.(text),
-      requesterSessionKey: config.targetSessionKey,
-      onTerminalState: config.wecomWebhookUrl
-        ? ({ label, state, text }) => {
-            const markdown = `## ${state === "FATAL" ? "⏰ Timed Out" : "✅ Completed"}: \`${label}\`\n> ${text.replace(/🚨 Claude Code session.*?\*\*/, "").slice(0, 2000)}`;
-            fetch(config.wecomWebhookUrl!, {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({
-                msgtype: "markdown",
-                markdown: { content: markdown },
-              }),
-            }).catch((err) => {
-              api.logger?.warn(`claude-code: wecom webhook failed: ${String(err)}`);
-            });
-          }
-        : undefined,
+      defaultNotifySessionKey: config.defaultNotifySessionKey,
     });
 
     const routes = createClaudeCodeRoutes({
@@ -153,17 +133,27 @@ const plugin: OpenClawPluginDefinition = definePluginEntry({
       handler: routes.dispatch,
     });
 
-    api.registerTool(createClaudeCodeStatusTool(store));
-    api.registerTool(createClaudeCodeSpawnTool({
-      permissionMode: config.permissionMode,
-      taskRegistry: taskReg,
-      requesterSessionKey: config.targetSessionKey,
-    }));
-    api.registerTool(createClaudeCodeStopTool());
-    api.registerTool(createClaudeCodeRestoreTool({ permissionMode: config.permissionMode }));
-    api.registerTool(createClaudeCodeSendTool());
-    api.registerTool(createClaudeCodeReadTool());
-    api.registerTool(createClaudeCodeSetupHooksTool());
+    // Tools are registered as factories so each invocation captures the
+    // caller's sessionKey + deliveryContext from OpenClawPluginToolContext.
+    // For tools that don't need routing (status, stop, read, send, restore,
+    // setup-hooks), the factory ignores ctx — uniform shape keeps the call
+    // site clean.
+    api.registerTool((ctx) =>
+      createClaudeCodeSpawnTool({
+        permissionMode: config.permissionMode,
+        store,
+        notifySessionKey: ctx.sessionKey,
+        notifyDeliveryContext: ctx.deliveryContext,
+        defaultNotifySessionKey: config.defaultNotifySessionKey,
+      }),
+    );
+    api.registerTool(() => createClaudeCodeStatusTool(store));
+    api.registerTool(() => createClaudeCodeStopTool());
+    api.registerTool(() => createClaudeCodeRestoreTool({ permissionMode: config.permissionMode }));
+    api.registerTool(() => createClaudeCodeSendTool());
+    api.registerTool(() => createClaudeCodeReadTool());
+    api.registerTool(() => createClaudeCodeSetupHooksTool());
+    api.registerTool(() => createClaudeCodeSetupAgentTool());
 
     let timeoutTimer: NodeJS.Timeout | undefined;
     api.registerService({

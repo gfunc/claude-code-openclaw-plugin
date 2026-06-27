@@ -51,6 +51,7 @@ function createMockApi(pluginConfig?: Record<string, unknown>) {
   const hooks: HookEntry[] = [];
   const httpRoutes: Array<{ path: string; handler: (req: IncomingMessage, res: ServerResponse) => Promise<void> }> = [];
   const tools: Array<{ name: string }> = [];
+  const toolFactories: Array<(ctx?: unknown) => { name: string } | undefined> = [];
   const services: Array<{ id: string; start: () => Promise<void> }> = [];
   const systemEvents: Array<{ text: string; opts: Record<string, unknown> }> = [];
   const heartbeatRequests: Array<Record<string, unknown>> = [];
@@ -71,8 +72,20 @@ function createMockApi(pluginConfig?: Record<string, unknown>) {
     registerHttpRoute: (params: { path: string; handler: (req: IncomingMessage, res: ServerResponse) => Promise<void> }) => {
       httpRoutes.push(params);
     },
-    registerTool: (tool: { name: string }) => {
-      tools.push(tool);
+    registerTool: (toolOrFactory: unknown) => {
+      if (typeof toolOrFactory === "function") {
+        toolFactories.push(toolOrFactory as (ctx?: unknown) => { name: string });
+        // Materialize with empty ctx so existing tests can still find by name.
+        try {
+          const t = (toolOrFactory as (ctx: unknown) => { name: string } | undefined)({});
+          if (t && t.name) tools.push(t);
+        } catch {
+          // Some factories may require ctx fields; ignore failures here — the
+          // factory-shape tests will validate them separately.
+        }
+      } else {
+        tools.push(toolOrFactory as { name: string });
+      }
     },
     registerHook: (
       events: string | string[],
@@ -91,7 +104,7 @@ function createMockApi(pluginConfig?: Record<string, unknown>) {
     },
   };
 
-  return { api, hooks, httpRoutes, tools, services, systemEvents, heartbeatRequests };
+  return { api, hooks, httpRoutes, tools, toolFactories, services, systemEvents, heartbeatRequests };
 }
 
 describe("claude-code-openclaw-plugin", () => {
@@ -125,7 +138,7 @@ describe("claude-code-openclaw-plugin", () => {
 
   it("POST hook returns 200 OK when no task-registry harness is available", async () => {
     const { api, httpRoutes } = createMockApi({
-      targetSessionKey: "agent:cc-watcher:main",
+      defaultNotifySessionKey: "agent:cc-watcher:main",
     });
     entry.register!(api as never);
     const hookRoute = httpRoutes.find((r) => r.path === "/claude-code/hook");
@@ -166,7 +179,7 @@ describe("claude-code-openclaw-plugin", () => {
     const { api, services } = createMockApi({
       stateFileDir: stateDir,
       sessionTimeoutSeconds: 300,
-      targetSessionKey: "agent:cc-watcher:main",
+      defaultNotifySessionKey: "agent:cc-watcher:main",
     });
     entry.register!(api as never);
     const timeoutService = services.find((s) => s.id === "claude-code-session-timeout");
@@ -191,5 +204,26 @@ describe("claude-code-openclaw-plugin", () => {
     }
 
     await fs.rm(stateDir, { recursive: true, force: true });
+  });
+
+  it("registers tools as factories that capture caller ctx", () => {
+    const { api, toolFactories } = createMockApi();
+    entry.register!(api as never);
+    expect(toolFactories.length).toBeGreaterThan(0);
+    // Spawn factory should produce a tool when invoked with a caller ctx.
+    const tools = toolFactories
+      .map((f) => f({ sessionKey: "agent:wecom:user-9", deliveryContext: { channel: "wecom", to: "user-9" } }))
+      .filter((t): t is { name: string } => !!t);
+    expect(tools.find((t) => t.name === "claude_code_spawn")).toBeDefined();
+  });
+
+  it("does not register a wecom webhook callback (feature removed)", () => {
+    // Even with a hypothetical wecom config, no webhook path should exist.
+    const { api, hooks } = createMockApi({
+      wecomWebhookUrl: "https://example.com/webhook",  // stripped by schema
+    });
+    entry.register!(api as never);
+    // Just confirm the plugin still loads; no hook or special behavior tied to wecom.
+    expect(hooks).toBeDefined();
   });
 });

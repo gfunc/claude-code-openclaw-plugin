@@ -1,4 +1,9 @@
+import type { OpenClawPluginToolContext } from "openclaw/plugin-sdk/plugin-entry";
 import type { ClaudeCodeState } from "./config.js";
+
+// Re-export so other plugin modules can use the same SDK-derived type
+// without each having to repeat the indexed-access dance.
+export type DeliveryContext = NonNullable<OpenClawPluginToolContext["deliveryContext"]>;
 
 // FATAL is set externally by the timeout service, not derived from hooks.
 // QUESTION is not produced by any current hook; skipped until a real trigger exists.
@@ -42,9 +47,10 @@ export type SessionState = {
   budgetMinutes?: number;
   budgetDeadline?: number;
   fatalReason?: string;
-  // task-registry fields
+  // notification routing — captured at spawn from tool factory ctx
   runId?: string;
-  requesterSessionKey?: string;
+  notifySessionKey?: string;
+  notifyDeliveryContext?: DeliveryContext;
   history: Array<{
     ts: number;
     state: ClaudeCodeState;

@@ -5,7 +5,8 @@ import { runCommandWithTimeout } from "openclaw/plugin-sdk/process-runtime";
 import type { ExecFn } from "./tmux.js";
 import { assertSafeSessionId, assertSafeTmuxSession, tmuxSessionExists } from "./tmux.js";
 import type { ClaudePermissionMode } from "./config.js";
-import type { TaskRegistry } from "./task-registry.js";
+import type { DeliveryContext } from "./state.js";
+import type { SessionStore } from "./store.js";
 import crypto from "node:crypto";
 import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
@@ -20,8 +21,11 @@ export type SpawnDeps = {
   startWatchdog?: (statePath: string, sessionId: string, tmuxSession: string, budgetMinutes: number) => Promise<void>;
   uuid?: () => string;
   sleepMs?: number;
-  taskRegistry?: TaskRegistry;
-  requesterSessionKey?: string;
+  store?: SessionStore;
+  notifySessionKey?: string;
+  notifyDeliveryContext?: DeliveryContext;
+  defaultNotifySessionKey?: string;
+  checkHooksConfigured?: (workdir: string) => Promise<boolean>;
 };
 
 const DEFAULT_TASKS_DIR = path.join(os.homedir(), ".cache", "claude-tasks");
@@ -82,7 +86,7 @@ done
   }
 }
 
-async function checkHooksConfigured(workdir: string): Promise<boolean> {
+async function defaultCheckHooksConfigured(workdir: string): Promise<boolean> {
   const files = [
     path.join(os.homedir(), ".claude", "settings.json"),
     path.join(workdir, ".claude", "settings.json"),
@@ -111,8 +115,11 @@ export async function spawnSession({
   startWatchdog = defaultStartWatchdog,
   uuid = defaultUuid,
   sleepMs = 5000,
-  taskRegistry,
-  requesterSessionKey,
+  store,
+  notifySessionKey,
+  notifyDeliveryContext,
+  defaultNotifySessionKey,
+  checkHooksConfigured = defaultCheckHooksConfigured,
 }: {
   tmuxSession: string;
   task: string;
@@ -223,13 +230,14 @@ export async function spawnSession({
     const stateLine = `RUNNING ${Date.now() / 1000 | 0} budget=${budgetMinutes}min workdir=${workdir} session_id=${sessionId}\n`;
     await writeState(stateFile, stateLine);
 
-    // Register as a background task so the requester session gets
-    // notified on state changes (WAITING, DONE, etc.).
-    if (taskRegistry && requesterSessionKey) {
-      taskRegistry.createTask({
+    // Capture the caller's notify routing so subsequent state changes
+    // (WAITING, DONE, etc.) can be routed back to the right OpenClaw session.
+    const resolvedNotifyKey = notifySessionKey ?? defaultNotifySessionKey;
+    if (store && resolvedNotifyKey) {
+      store.setNotifyContext(sessionId, {
         runId: sessionId,
-        task,
-        label: tmuxSession,
+        notifySessionKey: resolvedNotifyKey,
+        notifyDeliveryContext,
       });
     }
 
@@ -262,8 +270,10 @@ export async function spawnSession({
 
 export function createClaudeCodeSpawnTool(config?: {
   permissionMode?: ClaudePermissionMode;
-  taskRegistry?: TaskRegistry;
-  requesterSessionKey?: string;
+  store?: SessionStore;
+  notifySessionKey?: string;
+  notifyDeliveryContext?: DeliveryContext;
+  defaultNotifySessionKey?: string;
 }): AnyAgentTool {
   return {
     label: "Claude Code Spawn",
@@ -289,8 +299,10 @@ export function createClaudeCodeSpawnTool(config?: {
         budgetMinutes,
         permissionMode: config?.permissionMode,
         workdir,
-        taskRegistry: config?.taskRegistry,
-        requesterSessionKey: config?.requesterSessionKey,
+        store: config?.store,
+        notifySessionKey: config?.notifySessionKey,
+        notifyDeliveryContext: config?.notifyDeliveryContext,
+        defaultNotifySessionKey: config?.defaultNotifySessionKey,
       });
       return jsonResult(result);
     },
@@ -301,14 +313,21 @@ export async function handleSpawnRoute(
   body: unknown,
   config?: {
     permissionMode?: ClaudePermissionMode;
-    taskRegistry?: TaskRegistry;
-    requesterSessionKey?: string;
+    store?: SessionStore;
+    defaultNotifySessionKey?: string;
   },
 ): Promise<{ status: number; body: unknown }> {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     return { status: 400, body: { error: "invalid body" } };
   }
-  const { tmuxSession, task, budgetMinutes, workdir } = body as Record<string, unknown>;
+  const {
+    tmuxSession,
+    task,
+    budgetMinutes,
+    workdir,
+    notifySessionKey,
+    notifyDeliveryContext,
+  } = body as Record<string, unknown>;
   if (typeof tmuxSession !== "string" || typeof task !== "string") {
     return { status: 400, body: { error: "tmuxSession and task are required" } };
   }
@@ -318,8 +337,13 @@ export async function handleSpawnRoute(
     budgetMinutes: typeof budgetMinutes === "number" ? budgetMinutes : undefined,
     permissionMode: config?.permissionMode,
     workdir: typeof workdir === "string" ? workdir : undefined,
-    taskRegistry: config?.taskRegistry,
-    requesterSessionKey: config?.requesterSessionKey,
+    store: config?.store,
+    notifySessionKey: typeof notifySessionKey === "string" ? notifySessionKey : undefined,
+    notifyDeliveryContext:
+      notifyDeliveryContext && typeof notifyDeliveryContext === "object" && !Array.isArray(notifyDeliveryContext)
+        ? (notifyDeliveryContext as DeliveryContext)
+        : undefined,
+    defaultNotifySessionKey: config?.defaultNotifySessionKey,
   });
   return { status: result.success ? 200 : 500, body: result };
 }

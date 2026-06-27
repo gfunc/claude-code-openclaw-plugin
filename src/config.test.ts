@@ -10,7 +10,7 @@ describe("resolvePluginConfig", () => {
     expect(cfg.stateFileDir).toBe(
       path.join(os.homedir(), ".cache", "claude-code-hooks")
     );
-    expect(cfg.targetSessionKey).toBe("agent:main:main");
+    expect(cfg.defaultNotifySessionKey).toBe("agent:cc-watcher:main");
     expect(cfg.permissionMode).toBe("bypassPermissions");
   });
 
@@ -21,13 +21,19 @@ describe("resolvePluginConfig", () => {
     );
   });
 
-  it("rejects invalid notifyStates", () => {
-    expect(() => resolvePluginConfig({ notifyStates: ["UNKNOWN"] })).toThrow();
+  it("uses provided defaultNotifySessionKey", () => {
+    const cfg = resolvePluginConfig({ defaultNotifySessionKey: "agent:other" });
+    expect(cfg.defaultNotifySessionKey).toBe("agent:other");
   });
 
-  it("uses provided targetSessionKey", () => {
-    const cfg = resolvePluginConfig({ targetSessionKey: "agent:other" });
-    expect(cfg.targetSessionKey).toBe("agent:other");
+  it("strips unknown config field wecomWebhookUrl", () => {
+    const cfg = resolvePluginConfig({ wecomWebhookUrl: "https://example.com" });
+    expect((cfg as Record<string, unknown>).wecomWebhookUrl).toBeUndefined();
+  });
+
+  it("strips unknown config field notifyStates", () => {
+    const cfg = resolvePluginConfig({ notifyStates: ["WAITING"] });
+    expect((cfg as Record<string, unknown>).notifyStates).toBeUndefined();
   });
 
   it("uses provided permissionMode", () => {
