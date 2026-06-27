@@ -72,7 +72,7 @@ export function createClaudeCodeRoutes({
       }
       // Notify via task-registry on state transition.
       if (taskRegistry) {
-        await taskRegistry.onStateTransition(state);
+        taskRegistry.onStateTransition(state);
       }
       sendJson(res, 200, { ok: true });
     } catch (err) {

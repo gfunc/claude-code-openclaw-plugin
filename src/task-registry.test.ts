@@ -165,11 +165,6 @@ describe("createTaskRegistry", () => {
       expect(enqueueSystemEvent).not.toHaveBeenCalled();
       expect(requestHeartbeatNow).not.toHaveBeenCalled();
     });
-
-    it("createTask is a no-op", () => {
-      const { reg } = setup();
-      expect(() => reg.createTask({ runId: "r1", task: "do stuff" })).not.toThrow();
-    });
   });
 
   describe("logging", () => {

@@ -17,7 +17,6 @@
 import type { DeliveryContext, SessionState } from "./state.js";
 
 export type TaskRegistry = {
-  createTask(params: { runId: string; task: string; label?: string }): void;
   onStateTransition(state: SessionState): void;
 };
 
@@ -64,11 +63,6 @@ export function createTaskRegistry(deps: TaskRegistryDeps): TaskRegistry {
   const seenStates = new Set<string>();
 
   return {
-    createTask() {
-      // No persistent task record — routing lives on SessionState, delivery
-      // happens in onStateTransition.
-    },
-
     onStateTransition(state) {
       if (!NOTIFY_STATES.has(state.state)) return;
 

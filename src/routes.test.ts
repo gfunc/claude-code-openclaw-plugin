@@ -60,7 +60,6 @@ describe("createClaudeCodeRoutes", () => {
   beforeEach(() => {
     store = createSessionStore({ stateFileDir: "/tmp/routes-test" });
     taskRegistry = {
-      createTask: vi.fn(),
       onStateTransition: vi.fn(),
     } as unknown as TaskRegistry;
     sendKeys = vi.fn();
