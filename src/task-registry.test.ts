@@ -80,20 +80,19 @@ describe("createTaskRegistry", () => {
     });
   });
 
-  describe("exec-completion format", () => {
-    it.each([
-      ["WAITING",    "completed", "code 0"],
-      ["QUESTION",   "completed", "code 0"],
-      ["PERMISSION", "completed", "code 0"],
-      ["ERROR",      "completed", "code 0"],
-      ["DONE",       "completed", "code 0"],
-      ["FATAL",      "failed",    "code 1"],
-    ])("emits 'exec %s (claude-code-<id>, %s)' for %s", (state, verb, exitCode) => {
-      const { enqueueSystemEvent, reg } = setup();
-      reg.onStateTransition(makeState({ state }));
-      const text = enqueueSystemEvent.mock.calls[0]![0] as string;
-      expect(text).toMatch(new RegExp(`^exec ${verb} \\(claude-code-[a-zA-Z0-9_-]+, ${exitCode}\\) :: `));
-    });
+  describe("text format (cron-event path)", () => {
+    it.each(["WAITING", "QUESTION", "PERMISSION", "ERROR", "DONE", "FATAL"])(
+      "emits non-exec-completion text for %s so isCronSystemEvent matches",
+      (state) => {
+        const { enqueueSystemEvent, reg } = setup();
+        reg.onStateTransition(makeState({ state }));
+        const text = enqueueSystemEvent.mock.calls[0]![0] as string;
+        // Must NOT match isExecCompletionEvent regex (ensures cron path).
+        expect(text).not.toMatch(/^exec (completed|finished|failed) *[\(:]/i);
+        // Must contain the state emoji + session label.
+        expect(text).toMatch(/^(🚨|⚠️|ℹ️) Claude Code session /);
+      },
+    );
 
     it("wakes on every notify state", () => {
       for (const state of ["WAITING", "QUESTION", "PERMISSION", "ERROR", "DONE", "FATAL"]) {
