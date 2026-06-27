@@ -80,19 +80,46 @@ describe("createTaskRegistry", () => {
     });
   });
 
-  describe("text format (cron-event path)", () => {
+  describe("contextKey", () => {
+    it("uses task: prefix so interval heartbeats do not inspect the queue", () => {
+      const { enqueueSystemEvent, reg } = setup();
+      reg.onStateTransition(makeState({ state: "DONE" }));
+      expect(enqueueSystemEvent).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ contextKey: "task:claude-code:sid-1" }),
+      );
+    });
+  });
+
+  describe("text format (exec-completion path)", () => {
     it.each(["WAITING", "QUESTION", "PERMISSION", "ERROR", "DONE", "FATAL"])(
-      "emits non-exec-completion text for %s so isCronSystemEvent matches",
+      "emits exec-completion text for %s so isExecCompletionEvent matches",
       (state) => {
         const { enqueueSystemEvent, reg } = setup();
         reg.onStateTransition(makeState({ state }));
         const text = enqueueSystemEvent.mock.calls[0]![0] as string;
-        // Must NOT match isExecCompletionEvent regex (ensures cron path).
-        expect(text).not.toMatch(/^exec (completed|finished|failed) *[\(:]/i);
-        // Must contain the state emoji + session label.
-        expect(text).toMatch(/^(🚨|⚠️|ℹ️) Claude Code session /);
+        expect(text).toMatch(/^exec (completed|failed) \(claude-code-[a-z0-9_-]{1,64}, code [01]\) :: /i);
+        expect(text).toMatch(/(🚨|⚠️|ℹ️) Claude Code session `/);
       },
     );
+
+    it("uses failed + code 1 for FATAL", () => {
+      const { enqueueSystemEvent, reg } = setup();
+      reg.onStateTransition(makeState({ state: "FATAL" }));
+      const text = enqueueSystemEvent.mock.calls[0]![0] as string;
+      expect(text).toMatch(/^exec failed \(claude-code-/, "i");
+      expect(text).toContain("code 1");
+    });
+
+    it("uses completed + code 0 for non-FATAL notify states", () => {
+      for (const state of ["WAITING", "QUESTION", "PERMISSION", "ERROR", "DONE"]) {
+        const { enqueueSystemEvent, reg } = setup();
+        reg.onStateTransition(makeState({ state, sessionId: `sid-${state}` }));
+        const text = enqueueSystemEvent.mock.calls[0]![0] as string;
+        expect(text).toMatch(/^exec completed \(claude-code-/, "i");
+        expect(text).toContain("code 0");
+      }
+    });
 
     it("wakes on every notify state", () => {
       for (const state of ["WAITING", "QUESTION", "PERMISSION", "ERROR", "DONE", "FATAL"]) {

@@ -2,14 +2,17 @@
 //
 // Routing: each SessionState carries notifySessionKey + notifyDeliveryContext
 // captured from the tool-factory ctx at spawn time (see index.ts). On state
-// transitions we enqueue an exec-completion event addressed at that session
-// (with channel hint) and request a wake heartbeat.
+// transitions we enqueue an exec-completion event addressed at the default
+// notify session (cc-watcher hub) and request a wake heartbeat.
 //
-// contextKey uses "cron:" prefix so interval heartbeats (not just wakes) can
-// detect pending events. Without it the agent never sees them when the main
-// command lane is busy (getSize("main") > 0 blocks ALL wakes globally).
-// "task:" prefix would leave them invisible to interval heartbeats
-// (hasTaggedCronEvents=false → shouldInspectPendingEvents=false).
+// contextKey uses "task:" prefix so interval heartbeats do NOT inspect the
+// system-event queue. OpenClaw's heartbeat-runner sets
+// shouldInspectPendingEvents=true when any event has a "cron:" prefix
+// (hasTaggedCronEvents). When that happens and no heartbeat tasks are due,
+// resolveHeartbeatRunPrompt returns null and the runner silently consumes all
+// pending events at line 1138-1143, deleting them before the wake can run.
+// "task:" keeps events in the queue until a wake (source:"hook") or the next
+// user turn drains them.
 //
 // Why exec-completion format for ALL notify states (not just DONE/FATAL):
 //   heartbeat-runner only generates a user-visible prompt when
@@ -46,19 +49,21 @@ export type TaskRegistryDeps = {
 const NOTIFY_STATES = new Set(["WAITING", "QUESTION", "PERMISSION", "ERROR", "DONE", "FATAL"]);
 
 type StateDescriptor = {
+  verb: "completed" | "failed";
+  exitCode: "code 0" | "code 1";
   emoji: string;
   mood: string;
 };
 
 function describeState(state: string): StateDescriptor {
   switch (state) {
-    case "DONE":       return { emoji: "🚨", mood: "finished" };
-    case "FATAL":      return { emoji: "🚨", mood: "timed out" };
-    case "WAITING":    return { emoji: "⚠️", mood: "needs attention (waiting for input)" };
-    case "QUESTION":   return { emoji: "⚠️", mood: "needs attention (waiting for an answer)" };
-    case "PERMISSION": return { emoji: "⚠️", mood: "needs attention (waiting for permission)" };
-    case "ERROR":      return { emoji: "⚠️", mood: "needs attention (tool failed)" };
-    default:           return { emoji: "ℹ️", mood: state.toLowerCase() };
+    case "DONE":       return { verb: "completed", exitCode: "code 0", emoji: "🚨", mood: "finished" };
+    case "FATAL":      return { verb: "failed",    exitCode: "code 1", emoji: "🚨", mood: "timed out" };
+    case "WAITING":    return { verb: "completed", exitCode: "code 0", emoji: "⚠️", mood: "needs attention (waiting for input)" };
+    case "QUESTION":   return { verb: "completed", exitCode: "code 0", emoji: "⚠️", mood: "needs attention (waiting for an answer)" };
+    case "PERMISSION": return { verb: "completed", exitCode: "code 0", emoji: "⚠️", mood: "needs attention (waiting for permission)" };
+    case "ERROR":      return { verb: "completed", exitCode: "code 0", emoji: "⚠️", mood: "needs attention (tool failed)" };
+    default:           return { verb: "completed", exitCode: "code 0", emoji: "ℹ️", mood: state.toLowerCase() };
   }
 }
 
@@ -81,18 +86,15 @@ export function createTaskRegistry(deps: TaskRegistryDeps): TaskRegistry {
       const target = defaultNotifySessionKey;
       const initiator = state.notifySessionKey ?? defaultNotifySessionKey;
       const label = state.tmuxSession ?? state.sessionId;
-      const contextKey = `cron:claude-code:${state.sessionId}`;
+      const contextKey = `task:claude-code:${state.sessionId}`;
       const reason = `claude-code:${state.sessionId}:${state.state}`;
 
-      const { emoji, mood } = describeState(state.state);
+      const { verb, exitCode, emoji, mood } = describeState(state.state);
       const result = extractResultText(state.lastHookPayload as Record<string, unknown>);
       const resultSuffix = result ? `\n> ${result.slice(0, 7000)}` : "";
-      // Plain text (not exec-completion format) so heartbeat-runner routes
-      // through isCronSystemEvent → buildCronEventPrompt ("reminder") instead
-      // of isExecCompletionEvent → buildExecEventPrompt ("async command").
-      // MiniMax-M3 in heartbeat mode often ignores exec prompts but processes
-      // cron-event "reminder" prompts.
-      const text = `${emoji} Claude Code session \`${label}\` (initiator: ${initiator}) **${mood}**.${resultSuffix}`;
+      const execId = state.sessionId.replace(/[^a-z0-9_-]/gi, "-").slice(0, 64);
+      const body = `${emoji} Claude Code session \`${label}\` (initiator: ${initiator}) **${mood}**.${resultSuffix}`;
+      const text = `exec ${verb} (claude-code-${execId}, ${exitCode}) :: ${body}`;
 
       log?.(`claude-code: notify state=${state.state} sessionId=${state.sessionId} target=${target} initiator=${initiator} contextKey=${contextKey}`);
 
