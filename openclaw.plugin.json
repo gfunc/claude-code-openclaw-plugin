@@ -35,7 +35,8 @@
       "claude_code_restore",
       "claude_code_send",
       "claude_code_read",
-      "claude_code_setup_hooks"
+      "claude_code_setup_hooks",
+      "claude_code_setup_agent"
     ]
   },
   "skills": ["./skills"]

@@ -20,6 +20,7 @@ import { createClaudeCodeRestoreTool } from "./restore.js";
 import { createClaudeCodeSendTool } from "./send.js";
 import { createClaudeCodeReadTool } from "./read.js";
 import { createClaudeCodeSetupHooksTool } from "./setup-hooks.js";
+import { createClaudeCodeSetupAgentTool } from "./setup-agent.js";
 import { createTaskRegistry } from "./task-registry.js";
 
 const pluginConfigJsonSchema = {
@@ -152,6 +153,7 @@ const plugin: OpenClawPluginDefinition = definePluginEntry({
     api.registerTool(() => createClaudeCodeSendTool());
     api.registerTool(() => createClaudeCodeReadTool());
     api.registerTool(() => createClaudeCodeSetupHooksTool());
+    api.registerTool(() => createClaudeCodeSetupAgentTool());
 
     let timeoutTimer: NodeJS.Timeout | undefined;
     api.registerService({

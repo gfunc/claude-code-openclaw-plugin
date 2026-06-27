@@ -9,6 +9,24 @@ OpenClaw plugin — spawn, monitor, stop Claude Code sessions. Hooks auto-instal
 - `notifyStates` removed. Was never read by code.
 - `SessionState.requesterSessionKey` → `notifySessionKey` (+ new `notifyDeliveryContext`). On-disk state files from 0.7.x are forward-compatible: the old field is ignored, missing new fields fall back to `defaultNotifySessionKey`.
 
+## Setup
+
+The plugin needs two things in your OpenClaw config before it can notify you:
+
+1. **An agent to receive notifications.** The plugin defaults to `agent:cc-watcher:main`. Either:
+   - Run the bundled `claude_code_setup_agent` tool once to register a `cc-watcher` agent in `~/.openclaw/openclaw.json`, OR
+   - Add this stanza manually to your `agents.list`:
+
+     ```json
+     { "id": "cc-watcher" }
+     ```
+
+   The agent inherits its model from `agents.defaults.model`. Override with `{"id": "cc-watcher", "model": {"primary": "..."}}` if needed.
+
+2. **Hook config in each repo you want Claude Code tracked in.** Run `claude_code_setup_hooks` for each repo.
+
+If you want notifications routed somewhere else (e.g. an existing agent like `main`), set `defaultNotifySessionKey` in the plugin config instead.
+
 ## How notifications work
 
 Each tool invocation captures the caller's `sessionKey` and `deliveryContext` from OpenClaw's plugin tool context (via `OpenClawPluginToolFactory`). `claude_code_spawn` stores them on the Claude Code session it creates. When that session later hits a notify state (WAITING / QUESTION / PERMISSION / ERROR / DONE / FATAL), the plugin:
@@ -35,12 +53,13 @@ See `docs/openclaw-background-task-notification.md` for a full analysis of OpenC
 | `claude_code_stop` | Kill a session's tmux pane. |
 | `claude_code_restore` | Re-attach to a previous session by `--resume` id. |
 | `claude_code_setup_hooks` | Install hook config into a repo (`.claude/settings.local.json` or `shared=true` for `.claude/settings.json`). |
+| `claude_code_setup_agent` | Register a notification watcher agent (default id: `cc-watcher`) in `~/.openclaw/openclaw.json`. Idempotent. |
 
 ## Configuration
 
 | Field | Default | Purpose |
 |-------|---------|---------|
-| `defaultNotifySessionKey` | `agent:main:main` | Fallback target session when a tool caller's `sessionKey` is unavailable (e.g. HTTP spawn route, or invocations without an active session context) |
+| `defaultNotifySessionKey` | `agent:cc-watcher:main` | Fallback target session when a tool caller's `sessionKey` is unavailable (e.g. HTTP spawn route, or invocations without an active session context) |
 | `permissionMode` | `bypassPermissions` | Claude Code `--permission-mode` for spawn/restore |
 | `routePrefix` | `/claude-code` | HTTP route prefix |
 | `sessionTimeoutSeconds` | `300` | Idle threshold before FATAL |
@@ -86,5 +105,5 @@ See `docs/openclaw-background-task-notification.md` for a full analysis of OpenC
 ```bash
 npm install
 npm run build       # tsc → dist/
-npm test            # 154 tests across 19 files
+npm test            # 164 tests across 20 files
 ```
