@@ -2,27 +2,77 @@
   "id": "claude-code-openclaw-plugin",
   "name": "Claude Code harness",
   "description": "Add Claude Code harness tools to OpenClaw.",
-  "version": "0.6.0",
+  "version": "0.7.1",
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
     "properties": {
-      "routePrefix": { "type": "string", "default": "/claude-code" },
-      "eventTypes": { "type": "array", "items": { "type": "string" }, "default": ["*"] },
-      "stateFileDir": { "type": "string", "default": "~/.cache/claude-code-hooks" },
-      "notifyStates": { "type": "array", "items": { "type": "string" }, "default": ["WAITING", "QUESTION", "PERMISSION", "ERROR", "DONE"] },
-      "sendKeysRateLimitPerMinute": { "type": "number", "default": 10 },
-      "sessionTimeoutSeconds": { "type": "number", "default": 300 },
-      "targetSessionKey": { "type": "string", "default": "agent:main:main" },
-      "permissionMode": { "type": "string", "enum": ["default", "acceptEdits", "plan", "bypassPermissions"], "default": "bypassPermissions" },
-      "debugLog": { "type": "boolean", "default": false },
-      "wecomWebhookUrl": { "type": "string" }
+      "routePrefix": {
+        "type": "string",
+        "default": "/claude-code"
+      },
+      "eventTypes": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "default": [
+          "*"
+        ]
+      },
+      "stateFileDir": {
+        "type": "string",
+        "default": "~/.cache/claude-code-hooks"
+      },
+      "notifyStates": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "default": [
+          "WAITING",
+          "QUESTION",
+          "PERMISSION",
+          "ERROR",
+          "DONE"
+        ]
+      },
+      "sendKeysRateLimitPerMinute": {
+        "type": "number",
+        "default": 10
+      },
+      "sessionTimeoutSeconds": {
+        "type": "number",
+        "default": 300
+      },
+      "targetSessionKey": {
+        "type": "string",
+        "default": "agent:main:main"
+      },
+      "permissionMode": {
+        "type": "string",
+        "enum": [
+          "default",
+          "acceptEdits",
+          "plan",
+          "bypassPermissions"
+        ],
+        "default": "bypassPermissions"
+      },
+      "debugLog": {
+        "type": "boolean",
+        "default": false
+      },
+      "wecomWebhookUrl": {
+        "type": "string"
+      }
     },
     "required": []
   },
-  "activation": { "onStartup": true },
+  "activation": {
+    "onStartup": true
+  },
   "contracts": {
-    "gatewayMethodDispatch": ["authenticated-request"],
     "tools": [
       "claude_code_status",
       "claude_code_spawn",
