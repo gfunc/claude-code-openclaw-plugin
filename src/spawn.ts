@@ -340,7 +340,7 @@ export async function handleSpawnRoute(
     store: config?.store,
     notifySessionKey: typeof notifySessionKey === "string" ? notifySessionKey : undefined,
     notifyDeliveryContext:
-      notifyDeliveryContext && typeof notifyDeliveryContext === "object"
+      notifyDeliveryContext && typeof notifyDeliveryContext === "object" && !Array.isArray(notifyDeliveryContext)
         ? (notifyDeliveryContext as DeliveryContext)
         : undefined,
     defaultNotifySessionKey: config?.defaultNotifySessionKey,
