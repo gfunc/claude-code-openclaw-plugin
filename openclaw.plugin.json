@@ -2,76 +2,31 @@
   "id": "claude-code-openclaw-plugin",
   "name": "Claude Code harness",
   "description": "Add Claude Code harness tools to OpenClaw.",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
     "properties": {
-      "routePrefix": {
-        "type": "string",
-        "default": "/claude-code"
-      },
+      "routePrefix": { "type": "string", "default": "/claude-code" },
       "eventTypes": {
         "type": "array",
-        "items": {
-          "type": "string"
-        },
-        "default": [
-          "*"
-        ]
+        "items": { "type": "string" },
+        "default": ["*"]
       },
-      "stateFileDir": {
-        "type": "string",
-        "default": "~/.cache/claude-code-hooks"
-      },
-      "notifyStates": {
-        "type": "array",
-        "items": {
-          "type": "string"
-        },
-        "default": [
-          "WAITING",
-          "QUESTION",
-          "PERMISSION",
-          "ERROR",
-          "DONE"
-        ]
-      },
-      "sendKeysRateLimitPerMinute": {
-        "type": "number",
-        "default": 10
-      },
-      "sessionTimeoutSeconds": {
-        "type": "number",
-        "default": 300
-      },
-      "targetSessionKey": {
-        "type": "string",
-        "default": "agent:main:main"
-      },
+      "stateFileDir": { "type": "string", "default": "~/.cache/claude-code-hooks" },
+      "sendKeysRateLimitPerMinute": { "type": "number", "default": 10 },
+      "sessionTimeoutSeconds": { "type": "number", "default": 300 },
+      "defaultNotifySessionKey": { "type": "string", "default": "agent:main:main" },
       "permissionMode": {
         "type": "string",
-        "enum": [
-          "default",
-          "acceptEdits",
-          "plan",
-          "bypassPermissions"
-        ],
+        "enum": ["default", "acceptEdits", "plan", "bypassPermissions"],
         "default": "bypassPermissions"
       },
-      "debugLog": {
-        "type": "boolean",
-        "default": false
-      },
-      "wecomWebhookUrl": {
-        "type": "string"
-      }
+      "debugLog": { "type": "boolean", "default": false }
     },
     "required": []
   },
-  "activation": {
-    "onStartup": true
-  },
+  "activation": { "onStartup": true },
   "contracts": {
     "tools": [
       "claude_code_status",
@@ -83,7 +38,5 @@
       "claude_code_setup_hooks"
     ]
   },
-  "skills": [
-    "./skills"
-  ]
+  "skills": ["./skills"]
 }
