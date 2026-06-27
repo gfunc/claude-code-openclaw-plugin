@@ -41,7 +41,6 @@ const pluginConfigJsonSchema = {
     sendKeysRateLimitPerMinute: { type: "number", default: 10 },
     sessionTimeoutSeconds: { type: "number", default: 300 },
     targetSessionKey: { type: "string", default: "agent:main:main" },
-    notificationSessionKey: { type: "string" },
     permissionMode: {
       type: "string",
       enum: ["default", "acceptEdits", "plan", "bypassPermissions"],
@@ -95,7 +94,6 @@ const plugin: OpenClawPluginDefinition = definePluginEntry({
       },
       log: (text) => api.logger?.info?.(text),
       requesterSessionKey: config.targetSessionKey,
-      notificationSessionKey: config.notificationSessionKey,
       onTerminalState: config.wecomWebhookUrl
         ? ({ sessionId, label, state, text }) => {
             const markdown = `## ${state === "FATAL" ? "⏰ Timed Out" : "✅ Completed"}: \`${label}\`\n> ${text.replace(/🚨 Claude Code session.*?\*\*/, "").replace(/\n> /g, "\n> ").slice(0, 2000)}`;

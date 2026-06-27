@@ -40,10 +40,6 @@ export type TaskRegistryDeps = {
     agentId?: string;
   }) => void;
   requesterSessionKey: string;
-  // Session key for system events and wake calls.  Defaults to requesterSessionKey.
-  // Set to a dedicated agent (e.g. agent:cc-monitor:main) whose main lane is
-  // rarely busy so heartbeat wakes process immediately.
-  notificationSessionKey?: string;
   log?: (text: string) => void;
   onTerminalState?: (params: {
     sessionId: string;
@@ -58,18 +54,17 @@ const TERMINAL_STATES = new Set(["DONE", "FATAL"]);
 
 export function createTaskRegistry(deps: TaskRegistryDeps): TaskRegistry {
   const { enqueueSystemEvent, requestHeartbeatNow, requesterSessionKey, log } = deps;
-  const notifyKey = deps.notificationSessionKey || requesterSessionKey;
-  const notifyAgentId = notifyKey.split(":")[1] ?? "";
+  const agentId = requesterSessionKey.split(":")[1] ?? "";
   const seenStates = new Set<string>();
 
   function wake(reason: string) {
-    log?.(`claude-code: wake reason=${reason} sessionKey=${notifyKey} agentId=${notifyAgentId}`);
+    log?.(`claude-code: wake reason=${reason} sessionKey=${requesterSessionKey} agentId=${agentId}`);
     requestHeartbeatNow({
       source: "hook" as const,
       intent: "immediate" as const,
       reason,
-      sessionKey: notifyKey,
-      agentId: notifyAgentId,
+      sessionKey: requesterSessionKey,
+      agentId,
     });
   }
 
@@ -95,8 +90,8 @@ export function createTaskRegistry(deps: TaskRegistryDeps): TaskRegistry {
         const exitCode = state.state === "FATAL" ? "code 1" : "code 0";
         const body = `🚨 Claude Code session \`${label}\` **${state.state === "FATAL" ? "timed out" : "finished"}**.${resultSuffix}`;
         const text = `exec ${verb} (claude-code-${execId}, ${exitCode}) :: ${body}`;
-        const ok = enqueueSystemEvent(text, { sessionKey: notifyKey, contextKey });
-        log?.(`claude-code: enqueue terminal ok=${ok} sessionId=${state.sessionId} state=${state.state} contextKey=${contextKey} sessionKey=${notifyKey}`);
+        const ok = enqueueSystemEvent(text, { sessionKey: requesterSessionKey, contextKey });
+        log?.(`claude-code: enqueue terminal ok=${ok} sessionId=${state.sessionId} state=${state.state} contextKey=${contextKey} sessionKey=${requesterSessionKey}`);
         deps.onTerminalState?.({
           sessionId: state.sessionId,
           label,

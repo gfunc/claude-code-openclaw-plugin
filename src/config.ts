@@ -37,12 +37,6 @@ export const pluginConfigSchema = z.object({
   sendKeysRateLimitPerMinute: z.number().int().positive().default(10),
   sessionTimeoutSeconds: z.number().int().positive().default(300),
   targetSessionKey: z.string().default("agent:main:main"),
-  // Session key for terminal-state notifications (wake + system event).
-  // Defaults to targetSessionKey.  Set to a dedicated agent session
-  // (e.g. agent:cc-monitor:main) whose main command lane is rarely busy,
-  // so heartbeat wakes process immediately instead of retrying behind
-  // user-message traffic.
-  notificationSessionKey: z.string().optional(),
   permissionMode: ClaudePermissionMode.default("bypassPermissions"),
   // Append a line per received hook to <stateFileDir>/<sessionId>.log.
   // Off by default; logs are not rotated.

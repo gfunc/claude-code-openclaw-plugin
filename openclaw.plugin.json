@@ -14,7 +14,6 @@
       "sendKeysRateLimitPerMinute": { "type": "number", "default": 10 },
       "sessionTimeoutSeconds": { "type": "number", "default": 300 },
       "targetSessionKey": { "type": "string", "default": "agent:main:main" },
-      "notificationSessionKey": { "type": "string" },
       "permissionMode": { "type": "string", "enum": ["default", "acceptEdits", "plan", "bypassPermissions"], "default": "bypassPermissions" },
       "debugLog": { "type": "boolean", "default": false },
       "wecomWebhookUrl": { "type": "string" }
