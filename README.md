@@ -105,5 +105,5 @@ See `docs/openclaw-background-task-notification.md` for a full analysis of OpenC
 ```bash
 npm install
 npm run build       # tsc → dist/
-npm test            # 164 tests across 20 files
+npm test            # 165 tests across 20 files
 ```
