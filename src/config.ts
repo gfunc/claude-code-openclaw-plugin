@@ -29,7 +29,7 @@ export const pluginConfigSchema = z.object({
   stateFileDir: z.string().default("~/.cache/claude-code-hooks"),
   sendKeysRateLimitPerMinute: z.number().int().positive().default(10),
   sessionTimeoutSeconds: z.number().int().positive().default(300),
-  defaultNotifySessionKey: z.string().default("agent:main:main"),
+  defaultNotifySessionKey: z.string().default("agent:cc-watcher:main"),
   permissionMode: ClaudePermissionMode.default("bypassPermissions"),
   debugLog: z.boolean().default(false),
 });

@@ -10,7 +10,7 @@ describe("resolvePluginConfig", () => {
     expect(cfg.stateFileDir).toBe(
       path.join(os.homedir(), ".cache", "claude-code-hooks")
     );
-    expect(cfg.defaultNotifySessionKey).toBe("agent:main:main");
+    expect(cfg.defaultNotifySessionKey).toBe("agent:cc-watcher:main");
     expect(cfg.permissionMode).toBe("bypassPermissions");
   });
 

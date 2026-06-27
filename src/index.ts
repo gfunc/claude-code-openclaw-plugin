@@ -35,7 +35,7 @@ const pluginConfigJsonSchema = {
     stateFileDir: { type: "string", default: "~/.cache/claude-code-hooks" },
     sendKeysRateLimitPerMinute: { type: "number", default: 10 },
     sessionTimeoutSeconds: { type: "number", default: 300 },
-    defaultNotifySessionKey: { type: "string", default: "agent:main:main" },
+    defaultNotifySessionKey: { type: "string", default: "agent:cc-watcher:main" },
     permissionMode: {
       type: "string",
       enum: ["default", "acceptEdits", "plan", "bypassPermissions"],
