@@ -169,64 +169,7 @@ ACP 能工作是因为：
 
 ---
 
-## 6. Plugin 实践的结论
-
-经过 20+ 次迭代（v0.4.1 → v0.7.1），最终确认的可靠配置：
-
-### 当前生效路径
-
-```
-Claude Code SessionEnd hook
-  → plugin 收到
-    ├── wecom webhook POST → 即时文本通知（如果有配置 wecomWebhookUrl）
-    ├── exec-format event → agent:main:main 队列（task: prefix → 不被 interval 消费）
-    ├── wake (source: "hook") → 尝试唤醒
-    └── 用户发下条消息 → drainFormattedSystemEvents → agent 看到结果
-```
-
-### 试过但失败的路径
-
-| 尝试 | 版本 | 失败原因 |
-|------|------|---------|
-| `source: "background-task"` | ≤0.5.2 | 不在 `isWakePayload` 白名单 → 事件被静默消费 |
-| `contextKey: "cron:"` | 0.5.4 | interval heartbeat 抢先消费事件 → 事件丢失 |
-| `dispatchGatewayMethod("agent")` | 0.7.0 | scope 无 `gatewayMethodDispatchAllowed` |
-| `isolatedSession: true` | 0.6.1 | `getSize("main")` 在 isolated session 创建之前检查 |
-| `notificationSessionKey` | 0.6.3 | 不同 agent 的 session 无 delivery context → 无法路由 reply |
-
-### 最终配置
-
-| 配置 | 用途 |
-|------|------|
-| `targetSessionKey`（默认 `agent:main:main`） | spawn 归属 + system event 队列 + wake target |
-| `wecomWebhookUrl`（可选） | 绕过 OpenClaw 的即时文本推送 |
-
-### Wake 参数（最终版）
-
-```typescript
-requestHeartbeatNow({
-  source: "hook",        // ★ isWakePayload=true 白名单
-  intent: "immediate",   // 不 defer
-  reason: `claude-code:${sessionId}:${state}`,  // 唯一，防 dedup
-  sessionKey: targetSessionKey,
-  agentId,
-});
-```
-
-### Event 格式（最终版）
-
-```
-exec completed (claude-code-<id>, code 0) :: 🚨 Claude Code session <name> finished.
-> analysis result excerpt...
-```
-
-- Exec format → `isExecCompletionEvent=true` → `hasExecCompletion=true` → 生成 prompt
-- `task:` prefix → interval heartbeat 不消费
-- `source: "hook"` → `isWakePayload=true` → wake 时不静默消费
-
----
-
-## 7. 关键源码文件
+## 6. 关键源码文件
 
 | 文件 | 功能 | 关键行号 |
 |------|------|---------|
