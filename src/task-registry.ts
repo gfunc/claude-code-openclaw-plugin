@@ -76,8 +76,8 @@ export function createTaskRegistry(deps: TaskRegistryDeps): TaskRegistry {
       if (seenStates.has(key)) return;
       seenStates.add(key);
 
-      const target = state.notifySessionKey ?? defaultNotifySessionKey;
-      const agentId = target.split(":")[1] ?? "";
+      const initiator = state.notifySessionKey ?? defaultNotifySessionKey;
+      const agentId = initiator.split(":")[1] ?? "";
       const label = state.tmuxSession ?? state.sessionId;
       const contextKey = `cron:claude-code:${state.sessionId}`;
       const reason = `claude-code:${state.sessionId}:${state.state}`;
@@ -86,13 +86,13 @@ export function createTaskRegistry(deps: TaskRegistryDeps): TaskRegistry {
       const result = extractResultText(state.lastHookPayload as Record<string, unknown>);
       const resultSuffix = result ? `\n> ${result.slice(0, 7000)}` : "";
       const execId = state.sessionId.replace(/[^a-z0-9_-]/gi, "-").slice(0, 64);
-      const body = `${emoji} Claude Code session \`${label}\` **${mood}**.${resultSuffix}`;
+      const body = `${emoji} Claude Code session \`${label}\` (initiator: ${initiator}) **${mood}**.${resultSuffix}`;
       const text = `exec ${verb} (claude-code-${execId}, ${exitCode}) :: ${body}`;
 
-      log?.(`claude-code: notify state=${state.state} sessionId=${state.sessionId} target=${target} contextKey=${contextKey}`);
+      log?.(`claude-code: notify state=${state.state} sessionId=${state.sessionId} target=${initiator} contextKey=${contextKey}`);
 
       const enqOpts: { sessionKey: string; contextKey: string; deliveryContext?: DeliveryContext } = {
-        sessionKey: target,
+        sessionKey: initiator,
         contextKey,
       };
       if (state.notifyDeliveryContext) enqOpts.deliveryContext = state.notifyDeliveryContext;
@@ -102,7 +102,7 @@ export function createTaskRegistry(deps: TaskRegistryDeps): TaskRegistry {
         source: "hook",
         intent: "immediate",
         reason,
-        sessionKey: target,
+        sessionKey: initiator,
         agentId,
       });
     },
