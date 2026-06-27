@@ -70,14 +70,6 @@ export function createClaudeCodeRoutes({
       if (prevState?.state !== state.state) {
         log?.(`claude-code: state transition ${prevState?.state ?? "none"} -> ${state.state} sessionId=${state.sessionId}`);
       }
-      // On first hook for a session, set requester context if not already set.
-      if (!prevState && state.runId === undefined) {
-        store.setRequesterContext(
-          payload.session_id,
-          payload.session_id,          // runId = sessionId
-          config.targetSessionKey,     // from PluginConfig
-        );
-      }
       // Notify via task-registry on state transition.
       if (taskRegistry) {
         await taskRegistry.onStateTransition(state);
@@ -147,6 +139,8 @@ export function createClaudeCodeRoutes({
       const body = JSON.parse((await readBody(req)).toString("utf8"));
       const { status, body: resp } = await handleSpawnRoute(body, {
         permissionMode: config.permissionMode,
+        store,
+        defaultNotifySessionKey: config.defaultNotifySessionKey,
       });
       sendJson(res, status, resp);
     } catch (err) {

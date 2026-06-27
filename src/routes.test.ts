@@ -49,10 +49,9 @@ describe("createClaudeCodeRoutes", () => {
   const config: PluginConfig = {
     routePrefix: "/claude-code",
     eventTypes: ["*"],
-    notifyStates: ["WAITING", "QUESTION", "PERMISSION", "ERROR", "DONE"],
     sendKeysRateLimitPerMinute: 10,
     sessionTimeoutSeconds: 300,
-    targetSessionKey: "agent:main:main",
+    defaultNotifySessionKey: "agent:main:main",
     permissionMode: "bypassPermissions",
     stateFileDir: "/tmp/routes-test",
     debugLog: false,
@@ -272,7 +271,7 @@ describe("createClaudeCodeRoutes", () => {
     expect(state?.logFile).toBe("/tmp/cc.log");
   });
 
-  it("requesterSessionKey + runId are set on first hook via store", async () => {
+  it("hook handler does NOT set notify routing (now set by spawn)", async () => {
     const req = mockReq({
       method: "POST",
       path: "/claude-code/hook",
@@ -281,8 +280,9 @@ describe("createClaudeCodeRoutes", () => {
     await routes.hook(req, mockRes());
 
     const state = store.getState("s-req");
-    expect(state?.requesterSessionKey).toBe("agent:main:main");
-    expect(state?.runId).toBe("s-req");
+    expect(state).toBeDefined();
+    expect(state?.notifySessionKey).toBeUndefined();
+    expect(state?.runId).toBeUndefined();
   });
 
   // ── send route ───────────────────────────────────────────────
