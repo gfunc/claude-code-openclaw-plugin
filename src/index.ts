@@ -22,6 +22,7 @@ import { createClaudeCodeReadTool } from "./read.js";
 import { createClaudeCodeSetupHooksTool } from "./setup-hooks.js";
 import { createClaudeCodeSetupAgentTool } from "./setup-agent.js";
 import { createTaskRegistry } from "./task-registry.js";
+import { peekSystemEventEntries } from "openclaw/plugin-sdk/system-event-runtime";
 
 const pluginConfigJsonSchema = {
   type: "object",
@@ -43,6 +44,14 @@ const pluginConfigJsonSchema = {
       default: "bypassPermissions",
     },
     debugLog: { type: "boolean", default: false },
+    acpBudgetMinutes: { type: "number", default: 30 },
+    acpPermissionMode: {
+      type: "string",
+      enum: ["default", "acceptEdits", "plan", "bypassPermissions"],
+      default: "bypassPermissions",
+    },
+    acpAllowedTools: { type: "array", items: { type: "string" }, default: [] },
+    acpBackendId: { type: "string", default: "claude-code" },
   },
   required: [],
 } as const;
@@ -79,6 +88,7 @@ const plugin: OpenClawPluginDefinition = definePluginEntry({
           return false;
         }
       },
+      peekSystemEventEntries,
       requestHeartbeatNow: (opts) => {
         try {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any

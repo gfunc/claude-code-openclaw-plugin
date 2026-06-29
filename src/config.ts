@@ -32,6 +32,10 @@ export const pluginConfigSchema = z.object({
   defaultNotifySessionKey: z.string().default("agent:cc-watcher:main"),
   permissionMode: ClaudePermissionMode.default("bypassPermissions"),
   debugLog: z.boolean().default(false),
+  acpBudgetMinutes: z.number().int().positive().default(30),
+  acpPermissionMode: ClaudePermissionMode.default("bypassPermissions"),
+  acpAllowedTools: z.array(z.string()).default([]),
+  acpBackendId: z.string().default("claude-code"),
 });
 
 export type PluginConfig = z.infer<typeof pluginConfigSchema>;

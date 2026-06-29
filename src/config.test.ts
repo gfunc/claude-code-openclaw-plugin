@@ -12,6 +12,10 @@ describe("resolvePluginConfig", () => {
     );
     expect(cfg.defaultNotifySessionKey).toBe("agent:cc-watcher:main");
     expect(cfg.permissionMode).toBe("bypassPermissions");
+    expect(cfg.acpBudgetMinutes).toBe(30);
+    expect(cfg.acpPermissionMode).toBe("bypassPermissions");
+    expect(cfg.acpAllowedTools).toEqual([]);
+    expect(cfg.acpBackendId).toBe("claude-code");
   });
 
   it("expands tilde in stateFileDir", () => {
@@ -49,5 +53,22 @@ describe("resolvePluginConfig", () => {
 
   it("rejects an unknown permissionMode", () => {
     expect(() => resolvePluginConfig({ permissionMode: "yolo" })).toThrow();
+  });
+
+  it("uses provided acp fields", () => {
+    const cfg = resolvePluginConfig({
+      acpBudgetMinutes: 120,
+      acpPermissionMode: "plan",
+      acpAllowedTools: ["spawn", "status"],
+      acpBackendId: "custom-backend",
+    });
+    expect(cfg.acpBudgetMinutes).toBe(120);
+    expect(cfg.acpPermissionMode).toBe("plan");
+    expect(cfg.acpAllowedTools).toEqual(["spawn", "status"]);
+    expect(cfg.acpBackendId).toBe("custom-backend");
+  });
+
+  it("rejects an unknown acpPermissionMode", () => {
+    expect(() => resolvePluginConfig({ acpPermissionMode: "yolo" })).toThrow();
   });
 });
