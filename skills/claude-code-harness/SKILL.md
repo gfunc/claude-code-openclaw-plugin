@@ -21,26 +21,31 @@ Do **not** use this skill for:
 
 ## Session identifiers
 
-Three different ids are involved. Don't confuse them:
+Three ids are involved. The naming is confusing because OpenClaw and Claude Code both call their ids "session".
 
-| Id | Name in code | What it is |
-|----|--------------|------------|
-| **ACP session key** | `sessionKey` | OpenClaw's handle for the ACP session. You pass this to `sessions_spawn`, `sessions_send`, `sessions_cancel`, `sessions_status`. |
-| **Claude Code session id** | `sessionId` / `backendSessionId` | The value passed to `claude --session-id <id>` and later `claude --resume <id>`. It survives tmux restarts. |
-| **tmux session name** | `tmuxSession` / `runtimeSessionName` | The tmux pane that hosts the running `claude` process, e.g. `cc-a1b2c3d4`. |
+| Id | Where you see it | What it is |
+|----|------------------|------------|
+| **ACP session key** | Return value of `sessions_spawn`; argument to `sessions_send` / `sessions_cancel` / `sessions_status` | OpenClaw's handle for the ACP backend session. |
+| **OpenClaw session id** | `sessionId` field in `sessions_list` | OpenClaw's own session UUID (used for transcript files). **Not** the Claude Code session id. |
+| **Claude Code session id** | `sessionId` field inside `~/.cache/claude-code-hooks/{sessionKey}.acp.json` | The value passed to `claude --session-id` and `claude --resume`. It survives tmux restarts. |
+| **tmux session name** | `tmuxSession` field inside the sidecar file | The tmux pane name, e.g. `cc-a1b2c3d4`. |
 
-After `sessions_spawn(runtime: "acp", agentId: "claude-code")`, the returned `AcpRuntimeHandle` contains:
+The `sessions_spawn` tool returns only the ACP `sessionKey`. Even though the plugin's runtime adapter internally tracks `backendSessionId` and `runtimeSessionName`, the OpenClaw tool layer does **not** expose them in the tool result. To get the Claude Code session id or tmux name, read the sidecar:
 
-```ts
-{
-  sessionKey,          // OpenClaw ACP key
-  backendSessionId,    // Claude Code session id
-  runtimeSessionName,  // tmux session name
-  cwd,
-}
+```bash
+cat ~/.cache/claude-code-hooks/{sessionKey}.acp.json
 ```
 
-The plugin persists the mapping in `{stateFileDir}/{sessionKey}.acp.json`, so `backendSessionId` is durable even if the tmux session is recreated.
+Example sidecar:
+
+```json
+{
+  "sessionKey": "openclaw-acp-key-...",
+  "sessionId": "<claude-code-session-id>",
+  "tmuxSession": "cc-a1b2c3d4",
+  ...
+}
+```
 
 ## The ACP API (call from any agent)
 
@@ -52,7 +57,7 @@ The plugin registers an ACP runtime backend with id `claude-code`. Use OpenClaw'
 | Send input | `claude_code_send` | `sessions_send(sessionKey, "your prompt text")` |
 | Read output | `claude_code_read` | Read the turn result / text deltas returned by ACP |
 | Stop / cancel | `claude_code_stop` | `sessions_cancel(sessionKey)` |
-| Restore | `claude_code_restore` | `sessions_spawn(runtime: "acp", agentId: "claude-code", resume: "<backendSessionId>")` (or the ACP resume equivalent) |
+| Restore | `claude_code_restore` | `sessions_spawn(runtime: "acp", agentId: "claude-code", resume: "<claude-code-session-id>")` (get the id from the sidecar file) |
 | Status | `claude_code_status` | `sessions_status(sessionKey)` |
 | Setup hooks | `claude_code_setup_hooks` | `claude_code_setup_hooks({ repoPath: "/path/to/repo" })` |
 

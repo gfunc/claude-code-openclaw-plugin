@@ -1,8 +1,8 @@
 {
   "id": "claude-code-openclaw-plugin",
   "name": "Claude Code harness",
-  "description": "Add Claude Code harness tools to OpenClaw.",
-  "version": "0.8.0",
+  "description": "OpenClaw ACP runtime backend for Claude Code, plus hook installer.",
+  "version": "0.8.1",
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
@@ -29,14 +29,7 @@
   "activation": { "onStartup": true },
   "contracts": {
     "tools": [
-      "claude_code_status",
-      "claude_code_spawn",
-      "claude_code_stop",
-      "claude_code_restore",
-      "claude_code_send",
-      "claude_code_read",
-      "claude_code_setup_hooks",
-      "claude_code_setup_agent"
+      "claude_code_setup_hooks"
     ]
   },
   "skills": ["./skills"]
