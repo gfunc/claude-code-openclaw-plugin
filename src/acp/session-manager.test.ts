@@ -75,8 +75,8 @@ describe("AcpSessionManager", () => {
   it("rehydrates from sidecar when tmux is alive", async () => {
     const sidecar = {
       sessionKey: "agent:claude-code:acp:test-2",
-      tmuxSession: "cc-existing",
-      sessionId: "sess-existing",
+      tmuxSessionName: "cc-existing",
+      claudeCodeSessionId: "sess-existing",
       cwd: "/tmp",
       mode: "persistent" as const,
       startedAt: Date.now(),
@@ -117,8 +117,8 @@ describe("AcpSessionManager", () => {
   it("resumes dead tmux with claude --resume", async () => {
     const sidecar = {
       sessionKey: "agent:claude-code:acp:test-3",
-      tmuxSession: "cc-dead",
-      sessionId: "dead-sess",
+      tmuxSessionName: "cc-dead",
+      claudeCodeSessionId: "dead-sess",
       cwd: "/tmp",
       mode: "persistent" as const,
       startedAt: Date.now(),

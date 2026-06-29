@@ -30,6 +30,7 @@ export function createClaudeCodeAcpRuntime(
   return {
     async ensureSession(input: AcpRuntimeEnsureInput): Promise<AcpRuntimeHandle> {
       const handle = await params.sessionManager.ensureSession(input);
+      // backendSessionId = Claude Code --session-id; sessionKey = OpenClaw ACP key.
       if (handle.backendSessionId) {
         params.store.setSessionKey(handle.backendSessionId, handle.sessionKey);
       }
@@ -42,6 +43,7 @@ export function createClaudeCodeAcpRuntime(
         throw new Error("Session not found");
       }
 
+      // runtimeSessionName is the tmux session name (e.g. cc-a1b2c3d4).
       const tmuxSession = handle.runtimeSessionName;
 
       // Send the prompt text to the running Claude Code session.

@@ -27,8 +27,8 @@ Three ids are involved. The naming is confusing because OpenClaw and Claude Code
 |----|------------------|------------|
 | **ACP session key** | Return value of `sessions_spawn`; argument to `sessions_send` / `sessions_cancel` / `sessions_status` | OpenClaw's handle for the ACP backend session. |
 | **OpenClaw session id** | `sessionId` field in `sessions_list` | OpenClaw's own session UUID (used for transcript files). **Not** the Claude Code session id. |
-| **Claude Code session id** | `sessionId` field inside `~/.cache/claude-code-hooks/{sessionKey}.acp.json` | The value passed to `claude --session-id` and `claude --resume`. It survives tmux restarts. |
-| **tmux session name** | `tmuxSession` field inside the sidecar file | The tmux pane name, e.g. `cc-a1b2c3d4`. |
+| **Claude Code session id** | `claudeCodeSessionId` field inside `~/.cache/claude-code-hooks/{sessionKey}.acp.json` | The value passed to `claude --session-id` and `claude --resume`. It survives tmux restarts. |
+| **tmux session name** | `tmuxSessionName` field inside the sidecar file | The tmux pane name, e.g. `cc-a1b2c3d4`. |
 
 The `sessions_spawn` tool returns only the ACP `sessionKey`. Even though the plugin's runtime adapter internally tracks `backendSessionId` and `runtimeSessionName`, the OpenClaw tool layer does **not** expose them in the tool result. To get the Claude Code session id or tmux name, read the sidecar:
 
@@ -41,8 +41,8 @@ Example sidecar:
 ```json
 {
   "sessionKey": "openclaw-acp-key-...",
-  "sessionId": "<claude-code-session-id>",
-  "tmuxSession": "cc-a1b2c3d4",
+  "claudeCodeSessionId": "<claude-code-session-id>",
+  "tmuxSessionName": "cc-a1b2c3d4",
   ...
 }
 ```
@@ -57,7 +57,7 @@ The plugin registers an ACP runtime backend with id `claude-code`. Use OpenClaw'
 | Send input | `claude_code_send` | `sessions_send(sessionKey, "your prompt text")` |
 | Read output | `claude_code_read` | Read the turn result / text deltas returned by ACP |
 | Stop / cancel | `claude_code_stop` | `sessions_cancel(sessionKey)` |
-| Restore | `claude_code_restore` | `sessions_spawn(runtime: "acp", agentId: "claude-code", resume: "<claude-code-session-id>")` (get the id from the sidecar file) |
+| Restore | `claude_code_restore` | `sessions_spawn(runtime: "acp", agentId: "claude-code", resume: "<claude-code-session-id>")` (get the id from the sidecar's `claudeCodeSessionId` field) |
 | Status | `claude_code_status` | `sessions_status(sessionKey)` |
 | Setup hooks | `claude_code_setup_hooks` | `claude_code_setup_hooks({ repoPath: "/path/to/repo" })` |
 

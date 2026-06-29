@@ -52,8 +52,8 @@ Three ids are involved. They are easy to confuse because OpenClaw and Claude Cod
 |----|-------------------|------------|
 | **ACP session key** | `sessionKey` | The id OpenClaw returns from `sessions_spawn` and expects for `sessions_send` / `sessions_cancel` / `sessions_status`. |
 | **OpenClaw session id** | `sessionId` in `sessions_list` | OpenClaw's own session UUID (used for transcript files, e.g. `386b46e0-16d3-...`). **Not** the Claude Code session id. |
-| **Claude Code session id** | `sessionId` in `{sessionKey}.acp.json` | The value passed to `claude --session-id` and `claude --resume`. This is what lets the plugin resurrect a dead tmux session. |
-| **tmux session name** | `tmuxSession` in the sidecar | The tmux pane name, e.g. `cc-a1b2c3d4`. |
+| **Claude Code session id** | `claudeCodeSessionId` in `{sessionKey}.acp.json` | The value passed to `claude --session-id` and `claude --resume`. This is what lets the plugin resurrect a dead tmux session. |
+| **tmux session name** | `tmuxSessionName` in the sidecar | The tmux pane name, e.g. `cc-a1b2c3d4`. |
 
 `sessions_spawn(runtime: "acp", agentId: "claude-code")` returns an OpenClaw ACP session key. It does **not** expose `backendSessionId` or `runtimeSessionName` through the tool layer, even though the runtime adapter populates those fields internally. To find the Claude Code session id or tmux name, read the sidecar file written by the plugin:
 
@@ -66,8 +66,8 @@ The sidecar contains:
 ```json
 {
   "sessionKey": "...",
-  "sessionId": "<claude-code-session-id>",
-  "tmuxSession": "cc-...",
+  "claudeCodeSessionId": "<claude-code-session-id>",
+  "tmuxSessionName": "cc-...",
   ...
 }
 ```
@@ -110,6 +110,6 @@ Legacy action → ACP replacement:
 | `restore` | `sessions_spawn(runtime: "acp", agentId: "claude-code", resume: "<claude-code-session-id>")` (or the ACP resume equivalent) |
 | `status` | `sessions_status(sessionKey)` |
 
-For `restore`, get the Claude Code session id from `~/.cache/claude-code-hooks/{sessionKey}.acp.json` (field `sessionId`).
+For `restore`, get the Claude Code session id from `~/.cache/claude-code-hooks/{sessionKey}.acp.json` (field `claudeCodeSessionId`).
 
 The `src/task-registry.ts` heartbeat notification path has been removed.

@@ -22,9 +22,9 @@ function buildHandle(sidecar: AcpSessionSidecar): AcpRuntimeHandle {
   return {
     sessionKey: sidecar.sessionKey,
     backend: "claude-code",
-    runtimeSessionName: sidecar.tmuxSession,
+    runtimeSessionName: sidecar.tmuxSessionName,
     cwd: sidecar.cwd,
-    backendSessionId: sidecar.sessionId,
+    backendSessionId: sidecar.claudeCodeSessionId,
   };
 }
 
@@ -52,14 +52,14 @@ export function createAcpSessionManager(deps: AcpRuntimeDeps): AcpSessionManager
     sidecar: AcpSessionSidecar,
     deps: AcpRuntimeDeps,
   ): Promise<void> {
-    const { tmuxSession, sessionId, cwd, permissionMode } = sidecar;
-    assertSafeTmuxSession(tmuxSession);
-    assertSafeSessionId(sessionId);
+    const { tmuxSessionName, claudeCodeSessionId, cwd, permissionMode } = sidecar;
+    assertSafeTmuxSession(tmuxSessionName);
+    assertSafeSessionId(claudeCodeSessionId);
 
     // Clean up any stale session with the same name
-    await deps.exec(["tmux", "kill-session", "-t", tmuxSession], { timeoutMs: 5000 }).catch(() => {});
+    await deps.exec(["tmux", "kill-session", "-t", tmuxSessionName], { timeoutMs: 5000 }).catch(() => {});
 
-    const logFile = path.join(deps.tasksDir, `${tmuxSession}.log`);
+    const logFile = path.join(deps.tasksDir, `${tmuxSessionName}.log`);
     await fs.rm(logFile, { force: true });
 
     await deps.exec(
@@ -68,29 +68,29 @@ export function createAcpSessionManager(deps: AcpRuntimeDeps): AcpSessionManager
         "new-session",
         "-d",
         "-s",
-        tmuxSession,
+        tmuxSessionName,
         "-c",
         cwd,
-        `claude --session-id '${sessionId}' --permission-mode ${permissionMode}`,
+        `claude --session-id '${claudeCodeSessionId}' --permission-mode ${permissionMode}`,
       ],
       { timeoutMs: 10000 },
     );
 
     // Confirm tmux session exists
-    if (!(await tmuxSessionExists(tmuxSession, deps.exec))) {
-      throw new Error(`tmux session ${tmuxSession} did not start`);
+    if (!(await tmuxSessionExists(tmuxSessionName, deps.exec))) {
+      throw new Error(`tmux session ${tmuxSessionName} did not start`);
     }
 
     // Pipe pane output to log file
     await deps.exec(
-      ["tmux", "pipe-pane", "-t", tmuxSession, "-o", `cat >> '${logFile}'`],
+      ["tmux", "pipe-pane", "-t", tmuxSessionName, "-o", `cat >> '${logFile}'`],
       { timeoutMs: 5000 },
     );
 
     // Handle trust prompt
     await new Promise((r) => setTimeout(r, 5000));
     const capture = await deps.exec(
-      ["tmux", "capture-pane", "-t", tmuxSession, "-p"],
+      ["tmux", "capture-pane", "-t", tmuxSessionName, "-p"],
       { timeoutMs: 5000 },
     );
     const stdout = capture.stdout ?? "";
@@ -102,9 +102,9 @@ export function createAcpSessionManager(deps: AcpRuntimeDeps): AcpSessionManager
     const trustTwoOption =
       /Yes, I trust this folder/i.test(stdout) && /No, exit/i.test(stdout);
     if (trustThreeOption || trustTwoOption) {
-      await deps.exec(["tmux", "send-keys", "-t", tmuxSession, "1"], { timeoutMs: 5000 });
+      await deps.exec(["tmux", "send-keys", "-t", tmuxSessionName, "1"], { timeoutMs: 5000 });
       await new Promise((r) => setTimeout(r, 1000));
-      await deps.exec(["tmux", "send-keys", "-t", tmuxSession, "Enter"], { timeoutMs: 5000 });
+      await deps.exec(["tmux", "send-keys", "-t", tmuxSessionName, "Enter"], { timeoutMs: 5000 });
       await new Promise((r) => setTimeout(r, 2000));
     }
   }
@@ -113,13 +113,13 @@ export function createAcpSessionManager(deps: AcpRuntimeDeps): AcpSessionManager
     sidecar: AcpSessionSidecar,
     deps: AcpRuntimeDeps,
   ): Promise<void> {
-    const { tmuxSession, sessionId, cwd, permissionMode } = sidecar;
-    assertSafeTmuxSession(tmuxSession);
-    assertSafeSessionId(sessionId);
+    const { tmuxSessionName, claudeCodeSessionId, cwd, permissionMode } = sidecar;
+    assertSafeTmuxSession(tmuxSessionName);
+    assertSafeSessionId(claudeCodeSessionId);
 
-    await deps.exec(["tmux", "kill-session", "-t", tmuxSession], { timeoutMs: 5000 }).catch(() => {});
+    await deps.exec(["tmux", "kill-session", "-t", tmuxSessionName], { timeoutMs: 5000 }).catch(() => {});
 
-    const logFile = path.join(deps.tasksDir, `${tmuxSession}.log`);
+    const logFile = path.join(deps.tasksDir, `${tmuxSessionName}.log`);
     await fs.rm(logFile, { force: true });
 
     await deps.exec(
@@ -128,20 +128,20 @@ export function createAcpSessionManager(deps: AcpRuntimeDeps): AcpSessionManager
         "new-session",
         "-d",
         "-s",
-        tmuxSession,
+        tmuxSessionName,
         "-c",
         cwd,
-        `claude --resume ${sessionId} --permission-mode ${permissionMode}`,
+        `claude --resume ${claudeCodeSessionId} --permission-mode ${permissionMode}`,
       ],
       { timeoutMs: 10000 },
     );
 
-    if (!(await tmuxSessionExists(tmuxSession, deps.exec))) {
-      throw new Error(`tmux session ${tmuxSession} did not start on resume`);
+    if (!(await tmuxSessionExists(tmuxSessionName, deps.exec))) {
+      throw new Error(`tmux session ${tmuxSessionName} did not start on resume`);
     }
 
     await deps.exec(
-      ["tmux", "pipe-pane", "-t", tmuxSession, "-o", `cat >> '${logFile}'`],
+      ["tmux", "pipe-pane", "-t", tmuxSessionName, "-o", `cat >> '${logFile}'`],
       { timeoutMs: 5000 },
     );
   }
@@ -150,14 +150,14 @@ export function createAcpSessionManager(deps: AcpRuntimeDeps): AcpSessionManager
     async ensureSession(input) {
       const existing = sidecars.get(input.sessionKey);
       if (existing) {
-        const alive = await tmuxSessionExists(existing.tmuxSession, deps.exec);
+        const alive = await tmuxSessionExists(existing.tmuxSessionName, deps.exec);
         if (alive) return buildHandle(existing);
 
         // Try resume
-        if (existing.sessionId) {
+        if (existing.claudeCodeSessionId) {
           try {
             await spawnClaudeResume(existing, deps);
-            if (await tmuxSessionExists(existing.tmuxSession, deps.exec)) {
+            if (await tmuxSessionExists(existing.tmuxSessionName, deps.exec)) {
               return buildHandle(existing);
             }
           } catch (err) {
@@ -171,12 +171,12 @@ export function createAcpSessionManager(deps: AcpRuntimeDeps): AcpSessionManager
       }
 
       // Spawn fresh
-      const sessionId = crypto.randomUUID();
-      const tmuxSession = `cc-${sessionId.slice(0, 8)}`;
+      const claudeCodeSessionId = crypto.randomUUID();
+      const tmuxSessionName = `cc-${claudeCodeSessionId.slice(0, 8)}`;
       const sidecar: AcpSessionSidecar = {
         sessionKey: input.sessionKey,
-        tmuxSession,
-        sessionId,
+        tmuxSessionName,
+        claudeCodeSessionId,
         cwd: input.cwd ?? process.cwd(),
         mode: input.mode,
         startedAt: Date.now(),
@@ -194,9 +194,9 @@ export function createAcpSessionManager(deps: AcpRuntimeDeps): AcpSessionManager
       const sidecar = sidecars.get(sessionKey);
       if (!sidecar) return;
 
-      const alive = await tmuxSessionExists(sidecar.tmuxSession, deps.exec);
+      const alive = await tmuxSessionExists(sidecar.tmuxSessionName, deps.exec);
       if (alive && (sidecar.mode === "oneshot" || discardPersistentState)) {
-        await deps.exec(["tmux", "kill-session", "-t", sidecar.tmuxSession], { timeoutMs: 5000 });
+        await deps.exec(["tmux", "kill-session", "-t", sidecar.tmuxSessionName], { timeoutMs: 5000 });
       }
 
       if (sidecar.mode === "oneshot" || discardPersistentState) {
@@ -225,8 +225,8 @@ export function createAcpSessionManager(deps: AcpRuntimeDeps): AcpSessionManager
             const parsed = JSON.parse(raw) as AcpSessionSidecar;
             if (
               parsed.sessionKey &&
-              parsed.tmuxSession &&
-              parsed.sessionId &&
+              parsed.tmuxSessionName &&
+              parsed.claudeCodeSessionId &&
               parsed.cwd &&
               parsed.mode &&
               typeof parsed.startedAt === "number"
