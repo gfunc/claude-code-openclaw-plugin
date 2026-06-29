@@ -53,20 +53,13 @@ function createMockApi(pluginConfig?: Record<string, unknown>) {
   const tools: Array<{ name: string }> = [];
   const toolFactories: Array<(ctx?: unknown) => { name: string } | undefined> = [];
   const services: Array<{ id: string; start: () => Promise<void> }> = [];
-  const systemEvents: Array<{ text: string; opts: Record<string, unknown> }> = [];
-  const heartbeatRequests: Array<Record<string, unknown>> = [];
 
   const api = {
     pluginConfig,
     runtime: {
       system: {
-        enqueueSystemEvent: (text: string, opts: Record<string, unknown>) => {
-          systemEvents.push({ text, opts });
-          return true;
-        },
-        requestHeartbeatNow: (opts: Record<string, unknown>) => {
-          heartbeatRequests.push(opts);
-        },
+        enqueueSystemEvent: () => true,
+        requestHeartbeatNow: () => {},
       },
     },
     registerHttpRoute: (params: { path: string; handler: (req: IncomingMessage, res: ServerResponse) => Promise<void> }) => {
@@ -104,7 +97,7 @@ function createMockApi(pluginConfig?: Record<string, unknown>) {
     },
   };
 
-  return { api, hooks, httpRoutes, tools, toolFactories, services, systemEvents, heartbeatRequests };
+  return { api, hooks, httpRoutes, tools, toolFactories, services };
 }
 
 describe("claude-code-openclaw-plugin", () => {
@@ -113,16 +106,22 @@ describe("claude-code-openclaw-plugin", () => {
     expect(entry.register).toBeTypeOf("function");
   });
 
-  it("registers a claude_code_send tool", () => {
+  it("registers the claude_code_setup_hooks tool", () => {
     const { api, tools } = createMockApi();
     entry.register!(api as never);
-    expect(tools.map((t) => t.name)).toContain("claude_code_send");
+    expect(tools.map((t) => t.name)).toContain("claude_code_setup_hooks");
   });
 
-  it("registers a claude_code_read tool", () => {
+  it("does not register legacy tools", () => {
     const { api, tools } = createMockApi();
     entry.register!(api as never);
-    expect(tools.map((t) => t.name)).toContain("claude_code_read");
+    const names = tools.map((t) => t.name);
+    expect(names).not.toContain("claude_code_send");
+    expect(names).not.toContain("claude_code_read");
+    expect(names).not.toContain("claude_code_spawn");
+    expect(names).not.toContain("claude_code_stop");
+    expect(names).not.toContain("claude_code_restore");
+    expect(names).not.toContain("claude_code_status");
   });
 
   it("does not register a heartbeat_prompt_contribution hook (not a real hook event)", () => {
@@ -136,10 +135,8 @@ describe("claude-code-openclaw-plugin", () => {
     expect(contribution).toBeUndefined();
   });
 
-  it("POST hook returns 200 OK when no task-registry harness is available", async () => {
-    const { api, httpRoutes } = createMockApi({
-      defaultNotifySessionKey: "agent:cc-watcher:main",
-    });
+  it("POST hook returns 200 OK", async () => {
+    const { api, httpRoutes } = createMockApi({});
     entry.register!(api as never);
     const hookRoute = httpRoutes.find((r) => r.path === "/claude-code/hook");
     expect(hookRoute).toBeDefined();
@@ -179,7 +176,6 @@ describe("claude-code-openclaw-plugin", () => {
     const { api, services } = createMockApi({
       stateFileDir: stateDir,
       sessionTimeoutSeconds: 300,
-      defaultNotifySessionKey: "agent:cc-watcher:main",
     });
     entry.register!(api as never);
     const timeoutService = services.find((s) => s.id === "claude-code-session-timeout");
@@ -206,15 +202,14 @@ describe("claude-code-openclaw-plugin", () => {
     await fs.rm(stateDir, { recursive: true, force: true });
   });
 
-  it("registers tools as factories that capture caller ctx", () => {
+  it("registers only the setup-hooks tool factory", () => {
     const { api, toolFactories } = createMockApi();
     entry.register!(api as never);
-    expect(toolFactories.length).toBeGreaterThan(0);
-    // Spawn factory should produce a tool when invoked with a caller ctx.
+    expect(toolFactories.length).toBe(1);
     const tools = toolFactories
       .map((f) => f({ sessionKey: "agent:wecom:user-9", deliveryContext: { channel: "wecom", to: "user-9" } }))
       .filter((t): t is { name: string } => !!t);
-    expect(tools.find((t) => t.name === "claude_code_spawn")).toBeDefined();
+    expect(tools.find((t) => t.name === "claude_code_setup_hooks")).toBeDefined();
   });
 
   it("does not register a wecom webhook callback (feature removed)", () => {

@@ -37,7 +37,6 @@ ACP solves the same problem natively: background task lifecycle, durable complet
   "claude-code": {
     "routePrefix": "/claude-code",
     "stateFileDir": "~/.cache/claude-code-hooks",
-    "permissionMode": "bypassPermissions",
     "acpBudgetMinutes": 30,
     "acpPermissionMode": "bypassPermissions",
     "acpAllowedTools": [],

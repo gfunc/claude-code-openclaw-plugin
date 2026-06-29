@@ -52,7 +52,6 @@ function buildApi(opts: { stateDir: string }): {
 
   const api = {
     pluginConfig: {
-      defaultNotifySessionKey: "agent:main:main",
       stateFileDir: opts.stateDir,
     },
     runtime: {
@@ -127,17 +126,6 @@ describe("ACP backend integration", () => {
       res,
     );
     expect(res.statusCode).toBe(200);
-  });
-
-  it("registers the legacy /claude-code/spawn route", async () => {
-    stateDir = await fs.mkdtemp(path.join(os.tmpdir(), "cc-plugin-acp-"));
-    const { api, routes, waitForServices } = buildApi({ stateDir });
-
-    entry.register!(api as never);
-    await waitForServices();
-
-    expect(routes.some((r) => r.path === "/claude-code/spawn")).toBe(true);
-    expect(routes.some((r) => r.path === "/claude-code/")).toBe(true);
   });
 
   it("backend doctor reports missing claude/tmux when binaries are absent", async () => {

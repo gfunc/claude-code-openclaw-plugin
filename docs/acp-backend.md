@@ -65,10 +65,21 @@ The `doctor()` method checks that both `claude` and `tmux` binaries are on `PATH
 
 ## Migration from HTTP spawn/send/read
 
-The legacy `/claude-code/spawn`, `/send`, and `/read` routes remain for debugging, but the primary API is now ACP:
+The legacy `/claude-code/spawn`, `/send`, `/read`, `/stop`, and `/restore` routes and their associated tools have been removed in v0.8. Use the ACP runtime instead:
 
 ```
 sessions_spawn(runtime: "acp", agentId: "claude-code")
 ```
+
+Legacy action → ACP replacement:
+
+| Legacy action | ACP replacement |
+|---------------|-----------------|
+| `spawn` | `sessions_spawn(runtime: "acp", agentId: "claude-code")` |
+| `send` | `sessions_send(sessionId, "your prompt text")` |
+| `read` | Read the turn result returned by ACP |
+| `stop` | `sessions_cancel(sessionId)` |
+| `restore` | `sessions_spawn(runtime: "acp", agentId: "claude-code", resume: "<sessionId>")` (or the ACP resume equivalent) |
+| `status` | `sessions_status(sessionId)` |
 
 The `src/task-registry.ts` heartbeat notification path has been removed.

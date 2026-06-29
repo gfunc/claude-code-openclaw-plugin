@@ -44,14 +44,10 @@ describe("createClaudeCodeRoutes", () => {
   let store: ReturnType<typeof createSessionStore>;
   let routes: ReturnType<typeof createClaudeCodeRoutes>;
   let onHookTransition: ReturnType<typeof vi.fn>;
-  let sendKeys: ReturnType<typeof vi.fn>;
   const config: PluginConfig = {
     routePrefix: "/claude-code",
     eventTypes: ["*"],
-    sendKeysRateLimitPerMinute: 10,
     sessionTimeoutSeconds: 300,
-    defaultNotifySessionKey: "agent:main:main",
-    permissionMode: "bypassPermissions",
     stateFileDir: "/tmp/routes-test",
     debugLog: false,
     acpBudgetMinutes: 30,
@@ -63,11 +59,9 @@ describe("createClaudeCodeRoutes", () => {
   beforeEach(() => {
     store = createSessionStore({ stateFileDir: "/tmp/routes-test" });
     onHookTransition = vi.fn();
-    sendKeys = vi.fn();
     routes = createClaudeCodeRoutes({
       store,
       config,
-      sendKeys,
       onHookTransition,
     });
   });
@@ -276,68 +270,6 @@ describe("createClaudeCodeRoutes", () => {
     expect(state).toBeDefined();
     expect(state?.notifySessionKey).toBeUndefined();
     expect(state?.runId).toBeUndefined();
-  });
-
-  // ── send route ───────────────────────────────────────────────
-
-  it("returns 404 for unknown tmux session on send", async () => {
-    const req = mockReq({
-      method: "POST",
-      path: "/claude-code/unknown/send",
-      body: { text: "hi", submit: true },
-    });
-    const res = mockRes();
-    await routes.send(req, res);
-    expect(res.statusCode).toBe(404);
-  });
-
-  it("successfully sends keys and returns sent: true with sessionId", async () => {
-    await store.applyHook(
-      { hook_event_name: "Stop", session_id: "sess-1" },
-      async () => ({
-        tmuxSession: "tmux-1",
-        sessionId: "sess-1",
-        logFile: "/tmp/routes-test/tmux-1.log",
-      }),
-    );
-
-    const req = mockReq({
-      method: "POST",
-      path: "/claude-code/tmux-1/send",
-      body: { text: "hello", submit: true },
-    });
-    const res = mockRes();
-    await routes.send(req, res);
-    expect(res.statusCode).toBe(200);
-    const body = JSON.parse((res as unknown as { body: string }).body);
-    expect(body).toEqual({ sent: true, sessionId: "sess-1" });
-    expect(sendKeys).toHaveBeenCalledWith({
-      tmuxSession: "tmux-1",
-      text: "hello",
-      submit: true,
-    });
-  });
-
-  it("returns 400 for non-object body in send", async () => {
-    await store.applyHook(
-      { hook_event_name: "Stop", session_id: "sess-2" },
-      async () => ({
-        tmuxSession: "tmux-2",
-        sessionId: "sess-2",
-        logFile: "/tmp/routes-test/tmux-2.log",
-      }),
-    );
-
-    const req = mockReq({
-      method: "POST",
-      path: "/claude-code/tmux-2/send",
-      body: "not-an-object",
-    });
-    const res = mockRes();
-    await routes.send(req, res);
-    expect(res.statusCode).toBe(400);
-    const body = JSON.parse((res as unknown as { body: string }).body);
-    expect(body).toEqual({ error: "invalid body" });
   });
 
   // ── hook: multiple events on same session ─────────────────────
