@@ -21,8 +21,7 @@ import { createClaudeCodeSendTool } from "./send.js";
 import { createClaudeCodeReadTool } from "./read.js";
 import { createClaudeCodeSetupHooksTool } from "./setup-hooks.js";
 import { createClaudeCodeSetupAgentTool } from "./setup-agent.js";
-import { createTaskRegistry } from "./task-registry.js";
-import { peekSystemEventEntries } from "openclaw/plugin-sdk/system-event-runtime";
+import { registerClaudeCodeAcpBackend } from "./acp/index.js";
 
 const pluginConfigJsonSchema = {
   type: "object",
@@ -73,41 +72,15 @@ const plugin: OpenClawPluginDefinition = definePluginEntry({
       eventLogger,
     });
 
-    const taskReg = createTaskRegistry({
-      enqueueSystemEvent: (text, opts) => {
-        try {
-          const ok = api.runtime.system.enqueueSystemEvent(text, opts);
-          if (!ok) {
-            api.logger?.warn(
-              `claude-code: enqueueSystemEvent returned false contextKey=${opts.contextKey} sessionKey=${opts.sessionKey}`,
-            );
-          }
-          return ok;
-        } catch (err) {
-          api.logger?.warn(`claude-code: enqueueSystemEvent threw: ${String(err)}`);
-          return false;
-        }
-      },
-      peekSystemEventEntries,
-      requestHeartbeatNow: (opts) => {
-        try {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          api.runtime.system.requestHeartbeatNow(opts as any);
-          api.logger?.info?.(
-            `claude-code: requestedHeartbeat source=${opts.source} intent=${opts.intent} sessionKey=${opts.sessionKey} agentId=${opts.agentId ?? ""} reason=${opts.reason}`,
-          );
-        } catch (err) {
-          api.logger?.warn(`claude-code: requestHeartbeatNow failed: ${String(err)}`);
-        }
-      },
+    const { eventStreamer } = registerClaudeCodeAcpBackend({
+      config,
+      store,
       log: (text) => api.logger?.info?.(text),
-      defaultNotifySessionKey: config.defaultNotifySessionKey,
     });
 
     const routes = createClaudeCodeRoutes({
       store,
       config,
-      taskRegistry: taskReg,
       log: (text) => api.logger?.info?.(text),
       discoverSession: async (sessionId) => discoverSession({ sessionId }),
       sendKeys: async ({ tmuxSession, text, submit, keys }) => {
@@ -115,6 +88,9 @@ const plugin: OpenClawPluginDefinition = definePluginEntry({
         if (!exists) throw new Error(`tmux session ${tmuxSession} not found`);
         if (text) await sendKeysToTmuxSession({ tmuxSession, text, submit });
         if (keys && keys.length) await sendKeysSequence({ tmuxSession, keys });
+      },
+      onHookTransition: (state) => {
+        eventStreamer.notifyState(state.sessionId, state.state);
       },
     });
 
@@ -189,7 +165,7 @@ const plugin: OpenClawPluginDefinition = definePluginEntry({
                 "no hook received within sessionTimeoutSeconds",
               );
               if (updated) {
-                taskReg.onStateTransition(updated);
+                eventStreamer.notifyState(updated.sessionId, updated.state);
               }
             }
           }

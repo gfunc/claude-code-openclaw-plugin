@@ -5,7 +5,6 @@ import { createSessionStore } from "./store.js";
 import { createClaudeCodeRoutes } from "./routes.js";
 import type { PluginConfig } from "./config.js";
 import type { SessionState } from "./state.js";
-import type { TaskRegistry } from "./task-registry.js";
 
 function mockReq({
   method,
@@ -44,7 +43,7 @@ function mockRes(): ServerResponse {
 describe("createClaudeCodeRoutes", () => {
   let store: ReturnType<typeof createSessionStore>;
   let routes: ReturnType<typeof createClaudeCodeRoutes>;
-  let taskRegistry: TaskRegistry;
+  let onHookTransition: ReturnType<typeof vi.fn>;
   let sendKeys: ReturnType<typeof vi.fn>;
   const config: PluginConfig = {
     routePrefix: "/claude-code",
@@ -55,19 +54,21 @@ describe("createClaudeCodeRoutes", () => {
     permissionMode: "bypassPermissions",
     stateFileDir: "/tmp/routes-test",
     debugLog: false,
+    acpBudgetMinutes: 30,
+    acpPermissionMode: "bypassPermissions",
+    acpAllowedTools: [],
+    acpBackendId: "claude-code",
   };
 
   beforeEach(() => {
     store = createSessionStore({ stateFileDir: "/tmp/routes-test" });
-    taskRegistry = {
-      onStateTransition: vi.fn(),
-    } as unknown as TaskRegistry;
+    onHookTransition = vi.fn();
     sendKeys = vi.fn();
     routes = createClaudeCodeRoutes({
       store,
       config,
-      taskRegistry,
       sendKeys,
+      onHookTransition,
     });
   });
 
@@ -193,9 +194,9 @@ describe("createClaudeCodeRoutes", () => {
     }
   });
 
-  // ── hook: taskRegistry delegation ────────────────────────────
+  // ── hook: onHookTransition callback ─────────────────────────
 
-  it("delegates WAITING state to taskRegistry.onStateTransition", async () => {
+  it("calls onHookTransition on state transition", async () => {
     const req = mockReq({
       method: "POST",
       path: "/claude-code/hook",
@@ -203,14 +204,13 @@ describe("createClaudeCodeRoutes", () => {
     });
     await routes.hook(req, mockRes());
 
-    expect(taskRegistry.onStateTransition).toHaveBeenCalled();
-    const calls = (taskRegistry.onStateTransition as ReturnType<typeof vi.fn>).mock.calls;
-    const stateArg = calls[0]?.[0] as SessionState;
+    expect(onHookTransition).toHaveBeenCalled();
+    const stateArg = onHookTransition.mock.calls[0]?.[0] as SessionState;
     expect(stateArg.state).toBe("WAITING");
     expect(stateArg.sessionId).toBe("s-t1");
   });
 
-  it("delegates DONE state to taskRegistry.onStateTransition", async () => {
+  it("calls onHookTransition for DONE state", async () => {
     const req = mockReq({
       method: "POST",
       path: "/claude-code/hook",
@@ -222,16 +222,12 @@ describe("createClaudeCodeRoutes", () => {
     });
     await routes.hook(req, mockRes());
 
-    const calls = (taskRegistry.onStateTransition as ReturnType<typeof vi.fn>).mock.calls;
-    const stateArg = calls[0]?.[0] as SessionState;
+    const stateArg = onHookTransition.mock.calls[0]?.[0] as SessionState;
     expect(stateArg.state).toBe("DONE");
-    // last_assistant_message flows through to payload
     expect(stateArg.lastHookPayload.last_assistant_message).toBe("analysis complete");
   });
 
-  it("does NOT delegate WORKING state to taskRegistry (no-op)", async () => {
-    // First hook sets initial state to WORKING — taskRegistry not called
-    // because on first hook prevState is undefined and state is WORKING
+  it("calls onHookTransition for WORKING initial state", async () => {
     const req = mockReq({
       method: "POST",
       path: "/claude-code/hook",
@@ -239,10 +235,9 @@ describe("createClaudeCodeRoutes", () => {
     });
     await routes.hook(req, mockRes());
 
-    // onStateTransition IS called but it's a no-op internally for WORKING.
-    // We verify the hook worked and stored state correctly.
-    const state = store.getState("s-t3");
-    expect(state?.state).toBe("WORKING");
+    expect(onHookTransition).toHaveBeenCalled();
+    const stateArg = onHookTransition.mock.calls[0]?.[0] as SessionState;
+    expect(stateArg.state).toBe("WORKING");
   });
 
   // ── discover: tmux session mapping ───────────────────────────
@@ -251,7 +246,6 @@ describe("createClaudeCodeRoutes", () => {
     const routesWithDiscover = createClaudeCodeRoutes({
       store,
       config,
-      taskRegistry,
       discoverSession: async (sessionId) => {
         if (sessionId === "s-disc") return { tmuxSession: "cc-found-me", sessionId: "s-disc", logFile: "/tmp/cc.log" };
         return undefined;

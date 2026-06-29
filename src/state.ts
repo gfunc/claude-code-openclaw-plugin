@@ -37,6 +37,7 @@ export type SessionState = {
   sessionId: string;
   tmuxSession?: string;
   openclawSessionKey?: string;
+  sessionKey?: string;
   workdir?: string;
   logFile?: string;
   state: ClaudeCodeState;

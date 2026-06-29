@@ -26,6 +26,7 @@ export function createSessionStore(options: SessionStoreOptions) {
       notifyDeliveryContext?: DeliveryContext;
     }
   >();
+  const pendingSessionKeys = new Map<string, string>();
   let flushTimer: ReturnType<typeof setTimeout> | undefined;
   let disposed = false;
 
@@ -106,6 +107,12 @@ export function createSessionStore(options: SessionStoreOptions) {
         if (found.budgetMinutes) {
           state.budgetDeadline = Date.now() + found.budgetMinutes * 60_000;
         }
+      }
+      const pendingKey = pendingSessionKeys.get(payload.session_id);
+      if (pendingKey) {
+        state.sessionKey = pendingKey;
+        state.openclawSessionKey = pendingKey;
+        pendingSessionKeys.delete(payload.session_id);
       }
       const pending = pendingNotifyContext.get(payload.session_id);
       if (pending) {
@@ -224,6 +231,17 @@ export function createSessionStore(options: SessionStoreOptions) {
     }
   }
 
+  function setSessionKey(sessionId: string, sessionKey: string): void {
+    const state = sessions.get(sessionId);
+    if (state) {
+      state.sessionKey = sessionKey;
+      state.openclawSessionKey = sessionKey;
+      scheduleFlush();
+    } else {
+      pendingSessionKeys.set(sessionId, sessionKey);
+    }
+  }
+
   function listStates(): SessionState[] {
     return Array.from(sessions.values());
   }
@@ -242,5 +260,6 @@ export function createSessionStore(options: SessionStoreOptions) {
     loadFromDisk,
     dispose,
     setNotifyContext,
+    setSessionKey,
   };
 }

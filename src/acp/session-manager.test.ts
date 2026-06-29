@@ -4,6 +4,19 @@ import path from "node:path";
 import os from "node:os";
 import { createAcpSessionManager } from "./session-manager.js";
 import type { ExecFn } from "../tmux.js";
+import type { SpawnResult } from "openclaw/plugin-sdk/process-runtime";
+
+function spawnResult(overrides?: Partial<SpawnResult>): SpawnResult {
+  return {
+    code: 0,
+    stdout: "",
+    stderr: "",
+    signal: null,
+    killed: false,
+    termination: "exit",
+    ...overrides,
+  };
+}
 
 describe("AcpSessionManager", () => {
   const tmpDir = path.join(os.tmpdir(), "acp-session-manager-test");
@@ -24,15 +37,13 @@ describe("AcpSessionManager", () => {
       execCalls.push(argv);
       const key = argv.join(" ");
       if (key.startsWith("tmux has-session -t cc-")) {
-        // In spawnClaudeSession, has-session is called once after new-session
-        // and should return 0 (session exists)
-        return { code: 0, stdout: "" };
+        return spawnResult();
       }
-      if (key.startsWith("tmux kill-session -t cc-")) return { code: 0 };
-      if (key.startsWith("tmux new-session -d -s cc-")) return { code: 0 };
-      if (key.startsWith("tmux pipe-pane -t cc-")) return { code: 0 };
-      if (key.startsWith("tmux capture-pane -t cc-")) return { code: 0, stdout: "" };
-      return { code: 0, stdout: "" };
+      if (key.startsWith("tmux kill-session -t cc-")) return spawnResult();
+      if (key.startsWith("tmux new-session -d -s cc-")) return spawnResult();
+      if (key.startsWith("tmux pipe-pane -t cc-")) return spawnResult();
+      if (key.startsWith("tmux capture-pane -t cc-")) return spawnResult();
+      return spawnResult();
     };
 
     const mgr = createAcpSessionManager({
@@ -80,8 +91,8 @@ describe("AcpSessionManager", () => {
 
     const exec: ExecFn = async (argv) => {
       const key = argv.join(" ");
-      if (key === "tmux has-session -t cc-existing") return { code: 0 };
-      return { code: 0, stdout: "" };
+      if (key === "tmux has-session -t cc-existing") return spawnResult();
+      return spawnResult();
     };
 
     const mgr = createAcpSessionManager({
@@ -124,11 +135,11 @@ describe("AcpSessionManager", () => {
     const exec: ExecFn = async (argv) => {
       execCalls.push(argv);
       const key = argv.join(" ");
-      if (key === "tmux has-session -t cc-dead") return { code: 1 };
-      if (key.startsWith("tmux kill-session -t cc-dead")) return { code: 0 };
-      if (key.startsWith("tmux new-session") && key.includes("--resume dead-sess")) return { code: 0 };
-      if (key.startsWith("tmux pipe-pane -t cc-dead")) return { code: 0 };
-      return { code: 0, stdout: "" };
+      if (key === "tmux has-session -t cc-dead") return spawnResult({ code: 1 });
+      if (key.startsWith("tmux kill-session -t cc-dead")) return spawnResult();
+      if (key.startsWith("tmux new-session") && key.includes("--resume dead-sess")) return spawnResult();
+      if (key.startsWith("tmux pipe-pane -t cc-dead")) return spawnResult();
+      return spawnResult();
     };
 
     const mgr = createAcpSessionManager({

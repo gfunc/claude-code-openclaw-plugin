@@ -8,7 +8,7 @@ import { stopSession } from "./stop.js";
 import { restoreSession } from "./restore.js";
 import { handleSetupHooksRoute } from "./setup-hooks.js";
 import { readSession } from "./read.js";
-import type { TaskRegistry } from "./task-registry.js";
+import type { SessionState } from "./state.js";
 
 const MAX_BODY_BYTES = 1024 * 1024;
 
@@ -45,17 +45,17 @@ export type SendKeysFn = (params: {
 export function createClaudeCodeRoutes({
   store,
   config,
-  taskRegistry,
   sendKeys,
   discoverSession,
   log,
+  onHookTransition,
 }: {
   store: SessionStore;
   config: PluginConfig;
-  taskRegistry?: TaskRegistry;
   sendKeys?: SendKeysFn;
   discoverSession?: (sessionId: string) => Promise<DiscoveredSession | undefined>;
   log?: (text: string) => void;
+  onHookTransition?: (state: SessionState) => void;
 }) {
   const lastSendAt = new Map<string, number>();
 
@@ -70,10 +70,7 @@ export function createClaudeCodeRoutes({
       if (prevState?.state !== state.state) {
         log?.(`claude-code: state transition ${prevState?.state ?? "none"} -> ${state.state} sessionId=${state.sessionId}`);
       }
-      // Notify via task-registry on state transition.
-      if (taskRegistry) {
-        taskRegistry.onStateTransition(state);
-      }
+      onHookTransition?.(state);
       sendJson(res, 200, { ok: true });
     } catch (err) {
       // Claude Code must not be blocked by hook failures; always return 200
