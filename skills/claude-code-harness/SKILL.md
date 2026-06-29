@@ -1,116 +1,134 @@
 ---
 name: claude-code-harness
-description: Spawn, monitor, and stop Claude Code sessions from inside OpenClaw via the claude-code-openclaw-plugin. Standalone — no external CLI scripts.
+description: Drive Claude Code sessions from inside OpenClaw via the claude-code-openclaw-plugin ACP runtime backend.
 ---
 
 # Claude Code harness
 
-Use this skill when the `claude-code-openclaw-plugin` plugin is loaded and you need to drive Claude Code sessions from an OpenClaw agent session.
+Use this skill when the `claude-code-openclaw-plugin` plugin is loaded and you need to run long-running Claude Code tasks from an OpenClaw agent session.
 
 ## When to use
 
-- Run a non-trivial task asynchronously in Claude Code (a multi-hour refactor, a long debug, a TDD cycle) and stay in the loop without blocking the channel.
-- Monitor the state of one or more Claude Code sessions (WAITING / QUESTION / PERMISSION / ERROR / DONE / FATAL) and react when they reach a watched state.
-- Restore a previous Claude Code session by id (`--resume`) in a new tmux pane, preserving the original transcript.
-- Wire Claude Code hook events into OpenClaw for a target repo (so the plugin can track sessions there).
+- Run a non-trivial task asynchronously in Claude Code (multi-hour refactor, long debug, TDD cycle) and let OpenClaw's ACP layer handle completion delivery.
+- Resume a previous Claude Code session by its Claude Code session id.
+- Check whether a Claude Code backend session is alive.
+- Wire Claude Code hook events into OpenClaw for a target repo.
 
 Do **not** use this skill for:
 
-- Interactive one-shot prompts — call `claude` directly, or `claude_code_spawn` if the task should survive a channel disconnect.
-- Non-Claude-Code CLIs (aider, codex, etc.) — this plugin is specific to Claude Code hook events.
+- Interactive one-shot prompts — call `claude` directly.
+- Non-Claude-Code CLIs (aider, codex, etc.).
 
-## The tools (call from any agent)
+## Session identifiers
 
-| Tool | Use it when... |
-|------|----------------|
-| `claude_code_spawn` | you want to start a fresh Claude Code task in a tmux pane |
-| `claude_code_status` | you want to know what's running (optional `state` filter) |
-| `claude_code_read` | you need to see the live pane (current prompt, menu options, result) before acting |
-| `claude_code_send` | you want to answer a question, approve, type `continue`, switch mode, or drive a menu |
-| `claude_code_stop` | a session is hung or you want to abort |
-| `claude_code_restore` | you have a session id and want to continue (`--resume`) |
-| `claude_code_setup_hooks` | a target repo doesn't have hook config yet |
+Three different ids are involved. Don't confuse them:
 
-The tools are the preferred call form. The plugin also exposes HTTP routes under `/claude-code/*` for external callers (cron jobs, bots), but inside an agent session the tools are the right entry point.
+| Id | Name in code | What it is |
+|----|--------------|------------|
+| **ACP session key** | `sessionKey` | OpenClaw's handle for the ACP session. You pass this to `sessions_spawn`, `sessions_send`, `sessions_cancel`, `sessions_status`. |
+| **Claude Code session id** | `sessionId` / `backendSessionId` | The value passed to `claude --session-id <id>` and later `claude --resume <id>`. It survives tmux restarts. |
+| **tmux session name** | `tmuxSession` / `runtimeSessionName` | The tmux pane that hosts the running `claude` process, e.g. `cc-a1b2c3d4`. |
+
+After `sessions_spawn(runtime: "acp", agentId: "claude-code")`, the returned `AcpRuntimeHandle` contains:
+
+```ts
+{
+  sessionKey,          // OpenClaw ACP key
+  backendSessionId,    // Claude Code session id
+  runtimeSessionName,  // tmux session name
+  cwd,
+}
+```
+
+The plugin persists the mapping in `{stateFileDir}/{sessionKey}.acp.json`, so `backendSessionId` is durable even if the tmux session is recreated.
+
+## The ACP API (call from any agent)
+
+The plugin registers an ACP runtime backend with id `claude-code`. Use OpenClaw's generic session tools against it:
+
+| Action | Legacy tool (removed in v0.8) | ACP replacement |
+|--------|------------------------------|-----------------|
+| Start / spawn | `claude_code_spawn` | `sessions_spawn(runtime: "acp", agentId: "claude-code")` |
+| Send input | `claude_code_send` | `sessions_send(sessionKey, "your prompt text")` |
+| Read output | `claude_code_read` | Read the turn result / text deltas returned by ACP |
+| Stop / cancel | `claude_code_stop` | `sessions_cancel(sessionKey)` |
+| Restore | `claude_code_restore` | `sessions_spawn(runtime: "acp", agentId: "claude-code", resume: "<backendSessionId>")` (or the ACP resume equivalent) |
+| Status | `claude_code_status` | `sessions_status(sessionKey)` |
+| Setup hooks | `claude_code_setup_hooks` | `claude_code_setup_hooks({ repoPath: "/path/to/repo" })` |
 
 ## The state machine
 
-Claude Code hook events are mapped to a 7-state machine inside the plugin:
+Claude Code hook events are mapped to terminal and non-terminal states. ACP turns complete on `DONE`, `ERROR`, `WAITING`, `PERMISSION`, or `QUESTION`.
 
-| State | Triggered by hook events | Should I react? |
-|-------|--------------------------|-----------------|
-| `WORKING` | SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, FileChanged, CwdChanged, ElicitationResult | No — Claude Code is busy, leave it alone. |
-| `WAITING` | Stop (default fallback) | **Yes** — Claude Code has finished a turn and is waiting for you. |
-| `DONE` | SessionEnd | **Yes** — the session has fully ended. |
-| `QUESTION` | Elicitation | **Yes** — Claude Code asked the user a clarifying question. |
-| `PERMISSION` | PermissionRequest | **Yes** if you want to be involved; the trust default is "yes" (bypass). |
-| `ERROR` | PostToolUseFailure | **Yes** — a tool failed. |
-| `FATAL` | 5-min idle timeout (configurable) | **Yes, once** — the session is dead. |
+| State | Triggered by hook events | Meaning |
+|-------|--------------------------|---------|
+| `WORKING` | SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, FileChanged, CwdChanged, ElicitationResult | Claude Code is busy; ACP turn is still running. |
+| `WAITING` | Stop | Turn completed; Claude Code is waiting. |
+| `DONE` | SessionEnd | Session ended; ACP turn completes successfully. |
+| `QUESTION` | Elicitation | Claude Code asked a clarifying question (only in non-bypass mode). |
+| `PERMISSION` | PermissionRequest | Tool permission requested (only in non-bypass mode). |
+| `ERROR` | PostToolUseFailure | A tool failed; ACP turn completes as failed. |
+| `FATAL` | `sessionTimeoutSeconds` idle timeout | The tmux session is presumed dead. |
 
-Notification behavior is controlled by the `notifyStates` plugin config (default `[WAITING, QUESTION, PERMISSION, ERROR, DONE]`). `FATAL` is one-shot: a dead session announces itself exactly once.
+## Permission mode
 
-## How notifications reach you
+`acpPermissionMode` in plugin config is passed to `claude --permission-mode <mode>` for every spawned or resumed session:
 
-When a tracked session enters a state that's in `notifyStates`, the plugin calls OpenClaw's `enqueueSystemEvent` API. This injects a text event into the main session's queue. On the next turn, you'll see it in your prompt context, formatted like:
+- `default` — prompts before sensitive actions.
+- `acceptEdits` — auto-accepts file edits, prompts for other sensitive actions.
+- `plan` — plans only, makes no changes.
+- `bypassPermissions` — no prompts; fully autonomous. **Plugin default.**
 
-> `[<timestamp>] ⚠️ Claude Code session <tmux-session> is waiting for input`
-
-The prefix (`⚠️` / `🚨` / `ℹ️`) and message template come from the plugin's `STATE_BEHAVIOR` table — one entry per state, no branching per call site. The event text also carries any question / error / result detail pulled from the hook payload, so you see *what* happened, not just *that* something did.
-
-`enqueueSystemEvent` is the **primary** path: it goes straight into the target session queue and is consumed on the next turn unconditionally. On top of that, the plugin calls `requestHeartbeatNow` (best-effort, in its own try/catch) to **wake the target session immediately** instead of waiting for the next periodic heartbeat. If the wake fails, the queued event is still delivered on the next turn — so the notification is never lost.
-
-## Permission and session mode
-
-Claude Code has a **permission mode** that decides how it handles tool use and file edits. The plugin controls it two ways.
-
-**At launch (config).** `permissionMode` in plugin config is passed to `claude --permission-mode <mode>` for every `claude_code_spawn` / `claude_code_restore`. The values mirror Claude Code:
-
-- `default` — Claude prompts before sensitive actions (normal interactive permissions).
-- `acceptEdits` — auto-accepts file edits, still prompts for other sensitive actions.
-- `plan` — plan mode: Claude only plans, makes **no** changes.
-- `bypassPermissions` — no prompts at all; fully autonomous. **This is the plugin default**, which is why `PERMISSION`/`QUESTION` rarely fire.
-
-Set a stricter mode when you want a human or OpenClaw in the loop:
+Set a stricter mode when you want `PERMISSION` / `QUESTION` gates:
 
 ```json
-{ "plugins": { "entries": { "claude-code-openclaw-plugin": { "config": { "permissionMode": "plan" } } } } }
+{
+  "plugins": {
+    "entries": {
+      "claude-code-openclaw-plugin": {
+        "config": { "acpPermissionMode": "plan" }
+      }
+    }
+  }
+}
 ```
 
-**Live, mid-session.** Claude Code cycles its mode with **Shift+Tab**. tmux's name for Shift+Tab is `BTab`, so send it via `claude_code_send`:
+## Plugin configuration
 
-```text
-claude_code_read({ tmuxSession: "<tmux-session>" })           // see the current mode first
-claude_code_send({ tmuxSession: "<tmux-session>", keys: ["BTab"] }) // cycle mode (Shift+Tab)
-claude_code_send({ tmuxSession: "<tmux-session>", keys: ["Tab"] })  // plain Tab
+```json
+{
+  "claude-code": {
+    "routePrefix": "/claude-code",
+    "stateFileDir": "~/.cache/claude-code-hooks",
+    "sessionTimeoutSeconds": 300,
+    "debugLog": false,
+    "acpBudgetMinutes": 30,
+    "acpPermissionMode": "bypassPermissions",
+    "acpAllowedTools": [],
+    "acpBackendId": "claude-code"
+  }
+}
 ```
 
-**Answering a PERMISSION / QUESTION prompt** (only happens in a non-bypass mode):
-
-1. `claude_code_read({ tmuxSession })` — read the prompt and its options.
-2. `claude_code_send(...)` — type the answer (`text: "yes"`), pick a numbered option (`text: "2"`), or drive an arrow-highlight menu (`keys: ["Down", "Enter"]`).
-
-With the default `bypassPermissions`, Claude Code never raises these prompts — it just proceeds.
-
-## Standalone — no external scripts
-
-This plugin is fully self-contained. Specifically:
-
-- **No `bin/` shell wrappers.** Earlier versions shipped `claude-task`, `claude-task-restore`, `claude-task-stop`, `setup-claude-hooks` as HTTP-first shell scripts. Removed in v0.2.2. The plugin's tools and HTTP routes cover everything those scripts did.
-- **No manual hook wiring for the user.** `claude_code_setup_hooks` writes `.claude/settings.local.json` into a target repo with the right URL and event list. The user only has to run that tool once per repo.
-- **State persists in `~/.cache/claude-code-hooks/*.json`**, owned by the plugin. No external state files.
-- **The only external runtime dependency is `tmux`** (Claude Code itself runs in a tmux pane). Everything else — `node:child_process`, `node:fs/promises`, `zod`, `typebox` — is in-process.
+- `acpBudgetMinutes` — idle budget for ACP sessions.
+- `acpAllowedTools` — tools passed through to Claude Code.
+- `acpBackendId` — the registered ACP backend id (`claude-code` by default).
 
 ## Setup checklist for a fresh repo
 
-1. `claude_code_setup_hooks({repoPath: "/path/to/repo"})` — writes the hook config.
-2. Next time Claude Code runs in that repo, it pushes events to the plugin automatically.
-3. The plugin's store gains a session entry on the first hook event.
+1. `claude_code_setup_hooks({ repoPath: "/path/to/repo" })` — writes `.claude/settings.local.json` with the hook URL and event list.
+2. Next time Claude Code runs in that repo, it pushes events to `/claude-code/hook`.
+3. The plugin's `EventStreamer` drives ACP turn completion from those hook events.
 
-That's it. No `tmux` commands, no JSONL watchers, no env vars, no symlinks.
+## HTTP routes
+
+Only two routes remain in v0.8:
+
+- `POST /claude-code/hook` — receives Claude Code hook events.
+- `POST /claude-code/setup-hooks` — installs hook config into a repo (also available as the `claude_code_setup_hooks` tool).
 
 ## When to be careful
 
-- **Budget is enforced by an idle watchdog** (`sessionTimeoutSeconds` × heartbeat interval), not by wall-clock. As long as Claude Code keeps producing hook events, the session lives. If it goes silent for 5 minutes, the plugin marks it FATAL and the main session gets a one-shot notification.
-- **`targetSessionKey` defaults to `agent:main:main`.** If you want notifications delivered to a different session (e.g. a dedicated wecom channel), set this in plugin config.
-- **`PERMISSION` only fires in a non-bypass mode.** With the default `permissionMode: bypassPermissions`, Claude Code never raises permission prompts — it just proceeds. Set `permissionMode` to `default` / `acceptEdits` / `plan` to get `PERMISSION` / `QUESTION` gates, then answer them with `claude_code_read` + `claude_code_send`.
-- **FATAL is one-shot** because the session is dead — re-arming the notification would just spam the main session on every heartbeat forever.
+- **Session timeout** is enforced by an idle watchdog (`sessionTimeoutSeconds`). If Claude Code stops emitting hook events, the session is marked `FATAL`.
+- **`PERMISSION` / `QUESTION` only fire in a non-bypass mode.** With `acpPermissionMode: bypassPermissions`, Claude Code never raises these prompts.
+- **FATAL is one-shot** — the dead session is announced once.
